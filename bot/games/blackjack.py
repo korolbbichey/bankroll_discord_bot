@@ -5,181 +5,202 @@ Blackjack game for the BankRoll Discord Bot.
 import discord
 from discord import app_commands
 import random
+import logging
 
-from ..config import GAME_TIMEOUT
-from ..database import get_balance, update_balance, update_blackjack_stats
+from ..config import GAME_TIMEOUT, MIN_BET, MAX_BET
+from ..database import get_balance, try_debit, credit, update_blackjack_stats
 from ..utils import validate_bet
+
+logger = logging.getLogger(__name__)
+
+RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+SUITS = ['♠', '♥', '♦', '♣']
+
+
+def create_deck() -> list[tuple[str, str]]:
+    deck = [(rank, suit) for rank in RANKS for suit in SUITS]
+    random.shuffle(deck)
+    return deck
+
+
+def hand_value(hand) -> int:
+    value, aces = 0, 0
+    for rank, _ in hand:
+        if rank in ('J', 'Q', 'K'):
+            value += 10
+        elif rank == 'A':
+            value += 11
+            aces += 1
+        else:
+            value += int(rank)
+    while value > 21 and aces:
+        value -= 10
+        aces -= 1
+    return value
+
+
+def is_natural(hand) -> bool:
+    return len(hand) == 2 and hand_value(hand) == 21
+
+
+def format_hand(hand, hide_second=False) -> str:
+    return " ".join('`🂠`' if i == 1 and hide_second else f"`{rank}{suit}`" for i, (rank, suit) in enumerate(hand))
+
+
+class BlackjackView(discord.ui.View):
+    def __init__(self, user_id: int, bet: int):
+        super().__init__(timeout=GAME_TIMEOUT)
+        self.user_id = user_id
+        self.bet = bet
+        self.deck = create_deck()
+        self.player = [self.deck.pop(), self.deck.pop()]
+        self.dealer = [self.deck.pop(), self.deck.pop()]
+        self.settled = False
+        self.last_interaction: discord.Interaction | None = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your game!", ephemeral=True)
+            return False
+        if self.settled:
+            await interaction.response.send_message("Game has already ended.", ephemeral=True)
+            return False
+        return True
+
+    # ---------- rendering ----------
+
+    def playing_embed(self) -> discord.Embed:
+        embed = discord.Embed(title="🃏 Blackjack", color=discord.Color.dark_green())
+        embed.add_field(name="Your Hand", value=f"{format_hand(self.player)} ({hand_value(self.player)})", inline=False)
+        embed.add_field(name="Dealer's Hand", value=format_hand(self.dealer, hide_second=True), inline=False)
+        embed.add_field(name="💰 Bet", value=f"{self.bet} coins", inline=False)
+        embed.set_footer(text="Hit, Stand or Double down.")
+        return embed
+
+    def result_embed(self, outcome: str, profit: int, balance: int, note: str = "") -> discord.Embed:
+        color = discord.Color.green() if profit > 0 else (discord.Color.gold() if profit == 0 else discord.Color.red())
+        embed = discord.Embed(title=f"🎲 {outcome}", color=color)
+        embed.add_field(name="Your Hand", value=f"{format_hand(self.player)} ({hand_value(self.player)})", inline=False)
+        embed.add_field(name="Dealer's Hand", value=f"{format_hand(self.dealer)} ({hand_value(self.dealer)})", inline=False)
+        if profit > 0:
+            result = f"You won {profit} coins"
+        elif profit == 0:
+            result = "Your bet was returned"
+        else:
+            result = f"You lost {-profit} coins"
+        embed.add_field(name="💰 Result", value=result + note, inline=False)
+        embed.add_field(name="💵 New Balance", value=f"{balance} coins", inline=False)
+        return embed
+
+    # ---------- game logic ----------
+
+    def settle(self, outcome: str, profit: int, note: str = "") -> discord.Embed:
+        """Pay out and record stats exactly once. profit is relative to the (already debited) bet."""
+        self.settled = True
+        self.stop()
+        for item in self.children:
+            item.disabled = True
+
+        payout = self.bet + profit  # 0 on a loss, bet on a push, bet+profit on a win
+        balance = credit(self.user_id, payout) if payout > 0 else get_balance(self.user_id)
+        update_blackjack_stats(self.user_id, profit, is_win=profit > 0, is_push=profit == 0)
+        return self.result_embed(outcome, profit, balance, note)
+
+    def check_naturals(self) -> discord.Embed | None:
+        player_bj, dealer_bj = is_natural(self.player), is_natural(self.dealer)
+        if player_bj and dealer_bj:
+            return self.settle("🤝 Both Blackjack - Push!", 0)
+        if player_bj:
+            return self.settle("🎰 BLACKJACK!", int(self.bet * 1.5), " (Blackjack pays 3:2!)")
+        if dealer_bj:
+            return self.settle("🃏 Dealer has Blackjack!", -self.bet)
+        return None
+
+    def resolve_stand(self) -> discord.Embed:
+        while hand_value(self.dealer) < 17:
+            self.dealer.append(self.deck.pop())
+
+        player_val, dealer_val = hand_value(self.player), hand_value(self.dealer)
+        if dealer_val > 21:
+            return self.settle("🏆 Dealer Busts - You Win!", self.bet)
+        if player_val > dealer_val:
+            return self.settle("🏆 You Win!", self.bet)
+        if player_val == dealer_val:
+            return self.settle("🤝 It's a Tie!", 0)
+        return self.settle("😢 You Lost!", -self.bet)
+
+    # ---------- buttons ----------
+
+    @discord.ui.button(label="🃏 Hit", style=discord.ButtonStyle.primary)
+    async def hit(self, interaction: discord.Interaction, _):
+        self.last_interaction = interaction
+        self.player.append(self.deck.pop())
+        self.double.disabled = True
+
+        value = hand_value(self.player)
+        if value > 21:
+            embed = self.settle("💥 You Busted!", -self.bet)
+        elif value == 21:
+            embed = self.resolve_stand()
+        else:
+            embed = self.playing_embed()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="✋ Stand", style=discord.ButtonStyle.secondary)
+    async def stand(self, interaction: discord.Interaction, _):
+        self.last_interaction = interaction
+        await interaction.response.edit_message(embed=self.resolve_stand(), view=self)
+
+    @discord.ui.button(label="💰 Double", style=discord.ButtonStyle.success)
+    async def double(self, interaction: discord.Interaction, _):
+        self.last_interaction = interaction
+        if not try_debit(self.user_id, self.bet):
+            await interaction.response.send_message("❌ Not enough coins to double down.", ephemeral=True)
+            return
+        self.bet *= 2
+        self.player.append(self.deck.pop())
+        if hand_value(self.player) > 21:
+            embed = self.settle("💥 You Busted!", -self.bet)
+        else:
+            embed = self.resolve_stand()
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_timeout(self):
+        if self.settled:
+            return
+        embed = self.resolve_stand()
+        embed.set_footer(text="⌛ Timed out — stood automatically.")
+        if self.last_interaction:
+            try:
+                await self.last_interaction.edit_original_response(embed=embed, view=self)
+            except discord.HTTPException:
+                pass
 
 
 def setup(client):
     """Setup blackjack command."""
 
     @client.tree.command(name="blackjack", description="Play a game of Blackjack with a bet")
-    @app_commands.describe(bet="Amount to bet (1-10000)")
+    @app_commands.describe(bet=f"Amount to bet ({MIN_BET}-{MAX_BET})")
     async def blackjack(interaction: discord.Interaction, bet: int):
-        user_id = str(interaction.user.id)
-        balance = get_balance(user_id)
-
-        is_valid, error_msg = validate_bet(bet, balance)
-        if not is_valid:
-            await interaction.response.send_message(f"❌ {error_msg}", ephemeral=True)
+        user_id = interaction.user.id
+        is_valid, error_msg = validate_bet(bet, get_balance(user_id))
+        if not is_valid or not try_debit(user_id, bet):
+            await interaction.response.send_message(f"❌ {error_msg or 'You do not have enough balance for that bet.'}", ephemeral=True)
             return
 
-        # Deduct bet at start of game
-        update_balance(user_id, balance - bet)
-
-        def create_deck():
-            cards = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-            deck = cards * 4
-            random.shuffle(deck)
-            return deck
-
-        deck = create_deck()
-        player_hand = [deck.pop(), deck.pop()]
-        dealer_hand = [deck.pop(), deck.pop()]
-
-        class BlackjackView(discord.ui.View):
-            def __init__(self):
-                super().__init__(timeout=GAME_TIMEOUT)
-                self.player_hand = player_hand
-                self.dealer_hand = dealer_hand
-                self.deck = deck
-                self.bet = bet
-                self.message = None
-                self.ended = False
-
-            def hand_value(self, hand):
-                value, aces = 0, 0
-                for card in hand:
-                    if card in ['J', 'Q', 'K']:
-                        value += 10
-                    elif card == 'A':
-                        value += 11
-                        aces += 1
-                    else:
-                        value += int(card)
-                while value > 21 and aces:
-                    value -= 10
-                    aces -= 1
-                return value
-
-            def is_natural_blackjack(self, hand):
-                """Check if hand is a natural blackjack (21 with 2 cards)."""
-                return len(hand) == 2 and self.hand_value(hand) == 21
-
-            def format_hand(self, hand, hide_second=False):
-                return " ".join(['🂠' if i == 1 and hide_second else f"`{card}`" for i, card in enumerate(hand)])
-
-            async def update_message(self, inter, hide_dealer=True, footer="Choose an action."):
-                embed = discord.Embed(title="🃏 Blackjack", color=discord.Color.dark_green())
-                embed.add_field(name="Your Hand", value=f"{self.format_hand(self.player_hand)} ({self.hand_value(self.player_hand)})", inline=False)
-                embed.add_field(name="Dealer's Hand", value=self.format_hand(self.dealer_hand, hide_second=hide_dealer), inline=False)
-                embed.add_field(name="💰 Bet", value=f"{self.bet} coins", inline=False)
-                embed.set_footer(text=footer)
-                if self.message:
-                    await self.message.edit(embed=embed, view=self)
-                else:
-                    self.message = await inter.followup.send(embed=embed, view=self)
-
-            def end_game_embed(self, outcome, winnings, is_blackjack=False):
-                color = discord.Color.green() if winnings > 0 else (discord.Color.gold() if winnings == 0 else discord.Color.red())
-                embed = discord.Embed(title=f"🎲 {outcome}", color=color)
-                embed.add_field(name="Your Hand", value=f"{self.format_hand(self.player_hand)} ({self.hand_value(self.player_hand)})", inline=False)
-                embed.add_field(name="Dealer's Hand", value=f"{self.format_hand(self.dealer_hand)} ({self.hand_value(self.dealer_hand)})", inline=False)
-                result_text = f"You {'won' if winnings > 0 else 'lost'} {abs(winnings)} coins"
-                if is_blackjack:
-                    result_text += " (Blackjack bonus: 1.5x!)"
-                embed.add_field(name="💰 Result", value=result_text, inline=False)
-                embed.add_field(name="💵 New Balance", value=f"{get_balance(user_id)} coins", inline=False)
-                return embed
-
-            def disable_all(self):
-                for item in self.children:
-                    item.disabled = True
-
-            async def finish_game(self, interaction_button, outcome, winnings, is_blackjack=False):
-                """Finalize the game and update balances."""
-                self.ended = True
-                self.disable_all()
-                if winnings > 0:
-                    update_balance(user_id, get_balance(user_id) + self.bet + winnings)
-                    update_blackjack_stats(user_id, winnings, True)
-                elif winnings == 0:
-                    update_balance(user_id, get_balance(user_id) + self.bet)
-                    update_blackjack_stats(user_id, 0, False)
-                else:
-                    update_blackjack_stats(user_id, 0, False)
-                await interaction_button.response.edit_message(embed=self.end_game_embed(outcome, winnings, is_blackjack), view=self)
-
-            async def check_initial_blackjack(self, inter):
-                """Check for natural blackjack on initial deal."""
-                player_bj = self.is_natural_blackjack(self.player_hand)
-                dealer_bj = self.is_natural_blackjack(self.dealer_hand)
-
-                if player_bj and dealer_bj:
-                    self.ended = True
-                    self.disable_all()
-                    update_balance(user_id, get_balance(user_id) + self.bet)
-                    embed = self.end_game_embed("🤝 Both Blackjack - Push!", 0)
-                    self.message = await inter.followup.send(embed=embed, view=self)
-                    return True
-                elif player_bj:
-                    self.ended = True
-                    self.disable_all()
-                    winnings = int(self.bet * 1.5)
-                    update_balance(user_id, get_balance(user_id) + self.bet + winnings)
-                    update_blackjack_stats(user_id, winnings, True)
-                    embed = self.end_game_embed("🎰 BLACKJACK!", winnings, is_blackjack=True)
-                    self.message = await inter.followup.send(embed=embed, view=self)
-                    return True
-                return False
-
-            @discord.ui.button(label="🃏 Hit", style=discord.ButtonStyle.primary)
-            async def hit(self, interaction_button: discord.Interaction, _):
-                if self.ended:
-                    return await interaction_button.response.send_message("Game has already ended.", ephemeral=True)
-                if str(interaction_button.user.id) != user_id:
-                    return await interaction_button.response.send_message("This isn't your game!", ephemeral=True)
-
-                self.player_hand.append(self.deck.pop())
-                if self.hand_value(self.player_hand) > 21:
-                    await self.finish_game(interaction_button, "💥 You Busted!", -self.bet)
-                else:
-                    await interaction_button.response.defer()
-                    await self.update_message(interaction_button)
-
-            @discord.ui.button(label="✋ Stand", style=discord.ButtonStyle.secondary)
-            async def stand(self, interaction_button: discord.Interaction, _):
-                if self.ended:
-                    return await interaction_button.response.send_message("Game has already ended.", ephemeral=True)
-                if str(interaction_button.user.id) != user_id:
-                    return await interaction_button.response.send_message("This isn't your game!", ephemeral=True)
-
-                while self.hand_value(self.dealer_hand) < 17:
-                    self.dealer_hand.append(self.deck.pop())
-
-                player_val = self.hand_value(self.player_hand)
-                dealer_val = self.hand_value(self.dealer_hand)
-
-                if dealer_val > 21:
-                    outcome = "🏆 Dealer Busts - You Win!"
-                    winnings = self.bet
-                elif player_val > dealer_val:
-                    outcome = "🏆 You Win!"
-                    winnings = self.bet
-                elif player_val == dealer_val:
-                    outcome = "🤝 It's a Tie!"
-                    winnings = 0
-                else:
-                    outcome = "😢 You Lose!"
-                    winnings = -self.bet
-
-                await self.finish_game(interaction_button, outcome, winnings)
-
-        await interaction.response.defer()
-        view = BlackjackView()
-
-        if await view.check_initial_blackjack(interaction):
-            return
-
-        await view.update_message(interaction)
+        view = BlackjackView(user_id, bet)
+        view.last_interaction = interaction
+        try:
+            embed = view.check_naturals()
+            if embed is None:
+                if bet > get_balance(user_id):
+                    view.double.disabled = True
+                embed = view.playing_embed()
+            await interaction.response.send_message(embed=embed, view=view)
+        except Exception:
+            if not view.settled:
+                view.stop()
+                credit(user_id, bet)
+                logger.exception("Blackjack failed to start, bet refunded")
+            raise

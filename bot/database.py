@@ -1,10 +1,14 @@
 """
 Database operations for the BankRoll Discord Bot.
+
+All balance changes are done with single atomic UPDATE statements so that
+concurrent games can never read a stale balance and overwrite each other.
 """
 
+import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .config import DB_FILE, STARTING_BALANCE, DAILY_REWARD
 
@@ -12,18 +16,26 @@ from .config import DB_FILE, STARTING_BALANCE, DAILY_REWARD
 @contextmanager
 def get_connection():
     """Context manager for database connections."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=10)
     try:
         yield conn
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
 
 def init_db():
     """Initialize all database tables."""
+    db_dir = os.path.dirname(DB_FILE)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
     with get_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
 
         cursor.execute('''CREATE TABLE IF NOT EXISTS currency (
             user_id INTEGER PRIMARY KEY,
@@ -41,14 +53,6 @@ def init_db():
             largest_win INTEGER DEFAULT 0
         )''')
 
-        cursor.execute('''CREATE TABLE IF NOT EXISTS challenges (
-            user_id INTEGER PRIMARY KEY,
-            daily_wins INTEGER DEFAULT 0,
-            weekly_wins INTEGER DEFAULT 0,
-            last_daily_reset INTEGER DEFAULT 0,
-            last_weekly_reset INTEGER DEFAULT 0
-        )''')
-
         cursor.execute('''CREATE TABLE IF NOT EXISTS blackjack_stats (
             user_id INTEGER PRIMARY KEY,
             blackjack_wins INTEGER DEFAULT 0,
@@ -57,6 +61,18 @@ def init_db():
             blackjack_largest_win INTEGER DEFAULT 0
         )''')
 
+        cursor.execute('''CREATE TABLE IF NOT EXISTS symbol_counts (
+            user_id INTEGER NOT NULL,
+            symbol TEXT NOT NULL,
+            count INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, symbol)
+        )''')
+
+
+def _ensure_account(cursor, user_id):
+    cursor.execute("INSERT OR IGNORE INTO currency (user_id, balance) VALUES (?, ?)",
+                   (user_id, STARTING_BALANCE))
+
 
 # ============== Currency Operations ==============
 
@@ -64,21 +80,29 @@ def get_balance(user_id) -> int:
     """Get user balance, creating account if needed."""
     with get_connection() as conn:
         cursor = conn.cursor()
+        _ensure_account(cursor, user_id)
         cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,))
-        result = cursor.fetchone()
-        if result is None:
-            cursor.execute("INSERT INTO currency (user_id, balance) VALUES (?, ?)",
-                          (user_id, STARTING_BALANCE))
-            return STARTING_BALANCE
-        return result[0]
+        return cursor.fetchone()[0]
 
 
-def update_balance(user_id, new_balance: int):
-    """Update user's balance."""
+def try_debit(user_id, amount: int) -> bool:
+    """Atomically subtract amount if the user can afford it. Returns True on success."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("REPLACE INTO currency (user_id, balance) VALUES (?, ?)",
-                      (user_id, new_balance))
+        _ensure_account(cursor, user_id)
+        cursor.execute("UPDATE currency SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+                       (amount, user_id, amount))
+        return cursor.rowcount == 1
+
+
+def credit(user_id, amount: int) -> int:
+    """Atomically add amount to the user's balance. Returns the new balance."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        _ensure_account(cursor, user_id)
+        cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+        cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,))
+        return cursor.fetchone()[0]
 
 
 def get_leaderboard(limit: int = 5) -> list:
@@ -86,115 +110,88 @@ def get_leaderboard(limit: int = 5) -> list:
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT user_id, balance FROM currency ORDER BY balance DESC LIMIT ?",
-                      (limit,))
+                       (limit,))
         return cursor.fetchall()
 
 
 def claim_daily_reward(user_id) -> tuple[bool, int, str]:
     """
-    Attempt to claim daily reward.
+    Attempt to claim daily reward (resets at 00:00 UTC).
     Returns: (success, new_balance, message)
     """
-    today = datetime.today().date()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT balance, last_claim_date FROM currency WHERE user_id = ?", (user_id,))
-        result = cursor.fetchone()
+        cursor.execute("SELECT 1 FROM currency WHERE user_id = ?", (user_id,))
+        is_new = cursor.fetchone() is None
+        _ensure_account(cursor, user_id)
 
-        if result:
-            balance, last_claim_str = result
+        cursor.execute("""
+            UPDATE currency SET balance = balance + ?, last_claim_date = ?
+            WHERE user_id = ? AND (last_claim_date IS NULL OR last_claim_date != ?)
+        """, (DAILY_REWARD, today, user_id, today))
+        claimed = cursor.rowcount == 1
 
-            if last_claim_str:
-                last_claim_date = datetime.strptime(last_claim_str, "%Y-%m-%d").date()
-                if last_claim_date == today:
-                    return False, balance, "You've already claimed your daily reward today. Try again tomorrow!"
+        cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,))
+        balance = cursor.fetchone()[0]
 
-            new_balance = balance + DAILY_REWARD
-            cursor.execute("UPDATE currency SET balance = ?, last_claim_date = ? WHERE user_id = ?",
-                          (new_balance, today.strftime("%Y-%m-%d"), user_id))
-            return True, new_balance, f"You've claimed your daily reward of 💰 {DAILY_REWARD}!"
-        else:
-            # New user
-            new_balance = STARTING_BALANCE + DAILY_REWARD
-            cursor.execute("INSERT INTO currency (user_id, balance, last_claim_date) VALUES (?, ?, ?)",
-                          (user_id, new_balance, today.strftime("%Y-%m-%d")))
-            return True, new_balance, f"Welcome! You've received 💰 {STARTING_BALANCE} starting balance + 💰 {DAILY_REWARD} daily reward!"
+    if not claimed:
+        return False, balance, "You've already claimed your daily reward today. Try again after 00:00 UTC!"
+    if is_new:
+        return True, balance, f"Welcome! You've received 💰 {STARTING_BALANCE} starting balance + 💰 {DAILY_REWARD} daily reward!"
+    return True, balance, f"You've claimed your daily reward of 💰 {DAILY_REWARD}!"
 
 
 # ============== Stats Operations ==============
 
-def update_stats(user_id, winnings: int, bet: int, final_grid=None):
-    """Update user's game statistics."""
+def update_stats(user_id, payout: int, bet: int, final_grid=None):
+    """
+    Record a finished slots/coinflip round.
+    payout is the total amount returned to the player (0 on a loss).
+    """
+    profit = max(0, payout - bet)
+    win = payout > bet
+
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM stats WHERE user_id = ?", (user_id,))
-        result = cursor.fetchone()
+        cursor.execute("""
+            INSERT INTO stats (user_id, games_played, wins, losses, total_earned, largest_win)
+            VALUES (?, 1, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                games_played = games_played + 1,
+                wins = wins + excluded.wins,
+                losses = losses + excluded.losses,
+                total_earned = total_earned + excluded.total_earned,
+                largest_win = MAX(largest_win, excluded.largest_win)
+        """, (user_id, int(win), int(not win), profit, profit))
 
-        most_common_symbol = None
         if final_grid is not None:
-            most_common_counts = {}
             for row in final_grid:
                 for symbol in row:
-                    most_common_counts[symbol] = most_common_counts.get(symbol, 0) + 1
-            most_common_symbol = max(most_common_counts, key=most_common_counts.get)
-
-        profit = max(0, winnings - bet)
-        win = winnings > bet
-
-        if result:
-            _, _, wins, losses, total_earned, _, largest_win = result
-            wins += 1 if win else 0
-            losses += 0 if win else 1
-            total_earned += profit
-            largest_win = max(largest_win, profit)
-
-            cursor.execute("""
-                UPDATE stats SET
-                    games_played = games_played + 1,
-                    wins = ?,
-                    losses = ?,
-                    total_earned = ?,
-                    most_common_symbol = ?,
-                    largest_win = ?
-                WHERE user_id = ?
-            """, (wins, losses, total_earned, most_common_symbol or "", largest_win, user_id))
-        else:
-            cursor.execute("""
-                INSERT INTO stats (user_id, games_played, wins, losses, total_earned, most_common_symbol, largest_win)
-                VALUES (?, 1, ?, ?, ?, ?, ?)
-            """, (user_id, 1 if win else 0, 0 if win else 1, profit, most_common_symbol or "", profit))
+                    cursor.execute("""
+                        INSERT INTO symbol_counts (user_id, symbol, count) VALUES (?, ?, 1)
+                        ON CONFLICT(user_id, symbol) DO UPDATE SET count = count + 1
+                    """, (user_id, symbol))
 
 
-def update_blackjack_stats(user_id, winnings: int, is_win: bool):
-    """Update user's blackjack statistics."""
+def update_blackjack_stats(user_id, profit: int, is_win: bool, is_push: bool = False):
+    """Record a finished blackjack round. Pushes count as neither win nor loss."""
+    wins = int(is_win)
+    losses = int(not is_win and not is_push)
+    earned = profit if is_win else 0
+
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM blackjack_stats WHERE user_id = ?", (user_id,))
-        result = cursor.fetchone()
-
-        if result:
-            bj_wins, bj_losses, bj_total, bj_largest = result[1:]
-            if is_win:
-                bj_wins += 1
-                bj_total += winnings
-                bj_largest = max(bj_largest, winnings)
-            else:
-                bj_losses += 1
-
-            cursor.execute("""
-                UPDATE blackjack_stats SET
-                    blackjack_wins = ?,
-                    blackjack_losses = ?,
-                    blackjack_total_earned = ?,
-                    blackjack_largest_win = ?
-                WHERE user_id = ?
-            """, (bj_wins, bj_losses, bj_total, bj_largest, user_id))
-        else:
-            cursor.execute("""
-                INSERT INTO blackjack_stats (user_id, blackjack_wins, blackjack_losses, blackjack_total_earned, blackjack_largest_win)
-                VALUES (?, ?, ?, ?, ?)
-            """, (user_id, 1 if is_win else 0, 0 if is_win else 1, winnings if is_win else 0, winnings if is_win else 0))
+        cursor.execute("""
+            INSERT INTO blackjack_stats (user_id, blackjack_wins, blackjack_losses, blackjack_total_earned, blackjack_largest_win)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                blackjack_wins = blackjack_wins + excluded.blackjack_wins,
+                blackjack_losses = blackjack_losses + excluded.blackjack_losses,
+                blackjack_total_earned = blackjack_total_earned + excluded.blackjack_total_earned,
+                blackjack_largest_win = MAX(blackjack_largest_win, excluded.blackjack_largest_win)
+        """, (user_id, wins, losses, earned, earned))
 
 
 def get_user_profile(user_id) -> dict:
@@ -202,7 +199,7 @@ def get_user_profile(user_id) -> dict:
     with get_connection() as conn:
         cursor = conn.cursor()
 
-        cursor.execute("SELECT games_played, wins, losses, total_earned, most_common_symbol, largest_win FROM stats WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT games_played, wins, losses, total_earned, largest_win FROM stats WHERE user_id = ?", (user_id,))
         stats_row = cursor.fetchone()
 
         cursor.execute("SELECT blackjack_wins, blackjack_losses, blackjack_total_earned, blackjack_largest_win FROM blackjack_stats WHERE user_id = ?", (user_id,))
@@ -211,8 +208,12 @@ def get_user_profile(user_id) -> dict:
         cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,))
         balance_row = cursor.fetchone()
 
+        cursor.execute("SELECT symbol FROM symbol_counts WHERE user_id = ? ORDER BY count DESC LIMIT 1", (user_id,))
+        symbol_row = cursor.fetchone()
+
     return {
         "balance": balance_row[0] if balance_row else STARTING_BALANCE,
         "stats": stats_row,
-        "blackjack": blackjack_row if blackjack_row else (0, 0, 0, 0)
+        "blackjack": blackjack_row,
+        "most_common_symbol": symbol_row[0] if symbol_row else None,
     }

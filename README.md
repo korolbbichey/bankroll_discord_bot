@@ -5,8 +5,8 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 ## Features
 
 ### Interactive Games
-- **Slots** (`/slots <bet>`) - 3x3 slot machine with animated spins, multiple win lines, and adjustable bets
-- **Blackjack** (`/blackjack <bet>`) - Classic 21 with Hit/Stand actions, natural blackjack bonus (1.5x payout)
+- **Slots** (`/slots <bet>`) - 3x3 slot machine with animated spins, 8 paying lines, and adjustable bets (~95% return)
+- **Blackjack** (`/blackjack <bet>`) - Classic 21 with Hit/Stand/Double actions, natural blackjack pays 3:2
 - **Coin Flip** (`/coinflip <guess> <bet>`) - Simple heads/tails game with 2x payout
 
 ### Economy System
@@ -21,7 +21,9 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
   - Separate Blackjack statistics
 
 ### Admin Commands
-- **Add Balance** (`/add_balance <user> <amount>`) - Admin only, add currency to players
+Balances are shared across every server, so these are restricted to the **bot owner** (the application owner in the Developer Portal, plus anyone listed in `OWNER_IDS`):
+- **Add Balance** (`/add_balance <user> <amount>`) - add currency to a player
+- **Remove Balance** (`/remove_balance <user> <amount>`) - remove currency from a player
 
 ## Project Structure
 
@@ -82,7 +84,24 @@ bankroll_discord_bot/
    python main.py
    ```
 
+## Deploying to Railway
+
+1. Push the repo to GitHub and create a new Railway project from it. `railway.json` sets the start command (`python main.py`) and restart policy.
+2. In the service **Variables**, add `DISCORD_BOT_TOKEN` (and optionally `OWNER_IDS`).
+3. **Attach a Volume** to the service (e.g. mount path `/data`). The bot automatically stores `bot_data.db` in the volume via `RAILWAY_VOLUME_MOUNT_PATH`. Without a volume, all balances are wiped on every redeploy.
+4. No public domain or port is needed — the bot only makes outbound connections.
+
+To move an existing database, upload `bot_data.db` into the volume (for example with `railway ssh`) before the first start.
+
 ## Configuration
+
+Environment variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DISCORD_BOT_TOKEN` | yes | Bot token |
+| `OWNER_IDS` | no | Comma-separated user IDs allowed to use admin commands |
+| `DB_PATH` | no | Full path to the SQLite file (overrides the Railway volume default) |
 
 Edit `bot/config.py` to customize settings:
 
@@ -95,13 +114,15 @@ Edit `bot/config.py` to customize settings:
 | `GAME_TIMEOUT` | 60 | Game session timeout in seconds |
 
 ### Slot Machine Payouts
-| Symbol | Payout |
+Every line (3 rows, 3 columns, 2 diagonals) is checked and all winning lines are paid.
+
+| Symbol | Payout per line |
 |--------|--------|
-| 3x Cherry (🍒) | 5x bet |
-| 3x Watermelon (🍉) | 10x bet |
-| 3x Bell (🔔) | 20x bet |
-| 3x Star (⭐) | 50x bet |
-| 3x Diamond (💎) | 100x bet |
+| 3x Cherry (🍒) | 2x bet |
+| 3x Watermelon (🍉) | 5x bet |
+| 3x Bell (🔔) | 15x bet |
+| 3x Star (⭐) | 30x bet |
+| 3x Diamond (💎) | 75x bet |
 
 ## Adding New Games
 
@@ -137,11 +158,11 @@ my_game.setup(self)
 
 ## Database Schema
 
-The bot uses SQLite with 4 tables:
+The bot uses SQLite with these tables:
 - `currency` - User balances and daily claim tracking
-- `stats` - General game statistics
+- `stats` - Slots and coinflip statistics
 - `blackjack_stats` - Blackjack-specific statistics
-- `challenges` - Challenge/achievement tracking (future feature)
+- `symbol_counts` - Per-user slot symbol counts (for "most common symbol")
 
 ## Contributing
 

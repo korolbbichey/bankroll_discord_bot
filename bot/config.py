@@ -2,8 +2,16 @@
 Configuration settings for the BankRoll Discord Bot.
 """
 
+import os
+
 # Database
-DB_FILE = "bot_data.db"
+# DB_PATH wins; otherwise use a Railway volume if one is attached; otherwise the project folder.
+_volume = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+DB_FILE = os.getenv("DB_PATH") or (os.path.join(_volume, "bot_data.db") if _volume else "bot_data.db")
+
+# Extra bot owners allowed to use admin commands (comma-separated Discord user IDs).
+# The application owner from the Developer Portal is always allowed.
+OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(" ", "").split(",") if x}
 
 # Economy settings
 MAX_BET = 10000
@@ -12,23 +20,25 @@ DAILY_REWARD = 50
 STARTING_BALANCE = 100
 
 # Slot machine configuration
-SLOT_SYMBOLS = ["🍒", "🍉", "🔔", "⭐", "💎", "🤡"]
+SLOT_SYMBOLS = ["\U0001f352", "\U0001f349", "\U0001f514", "⭐", "\U0001f48e", "\U0001f921"]
 
 SYMBOL_WEIGHTS = {
-    "🍒": 0.27,
-    "🍉": 0.2,
-    "🔔": 0.1,
+    "\U0001f352": 0.27,
+    "\U0001f349": 0.2,
+    "\U0001f514": 0.1,
     "⭐": 0.08,
-    "💎": 0.05,
-    "🤡": 0.3
+    "\U0001f48e": 0.05,
+    "\U0001f921": 0.3
 }
 
+# Multiplier per winning line. All 8 lines (3 rows, 3 columns, 2 diagonals) pay and are summed.
+# With these weights the expected return is ~95.3% of the bet.
 SLOT_PAYOUTS = {
-    "🍒🍒🍒": 5,
-    "🍉🍉🍉": 10,
-    "🔔🔔🔔": 20,
-    "⭐⭐⭐": 50,
-    "💎💎💎": 100
+    "\U0001f352\U0001f352\U0001f352": 2,
+    "\U0001f349\U0001f349\U0001f349": 5,
+    "\U0001f514\U0001f514\U0001f514": 15,
+    "⭐⭐⭐": 30,
+    "\U0001f48e\U0001f48e\U0001f48e": 75
 }
 
 # Game timeouts (in seconds)
