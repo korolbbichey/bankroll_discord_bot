@@ -6,7 +6,7 @@ import discord
 from discord import app_commands
 
 from ..config import MAX_TRANSFER
-from ..database import get_balance, get_leaderboard, get_rank, claim_daily_reward, get_user_profile, transfer
+from ..database import get_balance, get_leaderboard, get_rank, get_player_count, claim_daily_reward, get_user_profile, transfer
 
 LEADERBOARD_SIZE = 10
 
@@ -68,9 +68,11 @@ def setup(client):
             title="🏆 Leaderboard — Top Richest Players",
             color=discord.Color.gold()
         )
+        footer = f"👥 Total players: {get_player_count()}"
         rank = get_rank(interaction.user.id)
         if rank:
-            embed.set_footer(text=f"Your position: #{rank} • 💰 {get_balance(interaction.user.id)}")
+            footer = f"Your position: #{rank} • 💰 {get_balance(interaction.user.id)}\n" + footer
+        embed.set_footer(text=footer)
 
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
         for i, (user_id, user_balance) in enumerate(rows, start=1):

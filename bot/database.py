@@ -139,6 +139,14 @@ def get_rank(user_id) -> int | None:
         return cursor.fetchone()[0]
 
 
+def get_player_count() -> int:
+    """Number of users who have played at least one game."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM (SELECT user_id FROM stats UNION SELECT user_id FROM blackjack_stats)")
+        return cursor.fetchone()[0]
+
+
 def get_leaderboard(limit: int = 5) -> list:
     """Get top users by balance."""
     with get_connection() as conn:
