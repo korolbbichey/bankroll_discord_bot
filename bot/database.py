@@ -8,7 +8,7 @@ concurrent games can never read a stale balance and overwrite each other.
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .config import DB_FILE, STARTING_BALANCE, DAILY_REWARD
 
@@ -105,6 +105,40 @@ def credit(user_id, amount: int) -> int:
         return cursor.fetchone()[0]
 
 
+def transfer(from_id, to_id, amount: int) -> bool:
+    """Atomically move amount between two users. Returns False if the sender can't afford it."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        _ensure_account(cursor, from_id)
+        _ensure_account(cursor, to_id)
+        cursor.execute("UPDATE currency SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+                       (amount, from_id, amount))
+        if cursor.rowcount != 1:
+            return False
+        cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (amount, to_id))
+        return True
+
+
+def set_balance(user_id, amount: int):
+    """Set a user's balance to an exact value (admin use)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        _ensure_account(cursor, user_id)
+        cursor.execute("UPDATE currency SET balance = ? WHERE user_id = ?", (amount, user_id))
+
+
+def get_rank(user_id) -> int | None:
+    """1-based leaderboard position, or None if the user has no account."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        cursor.execute("SELECT COUNT(*) + 1 FROM currency WHERE balance > ?", (row[0],))
+        return cursor.fetchone()[0]
+
+
 def get_leaderboard(limit: int = 5) -> list:
     """Get top users by balance."""
     with get_connection() as conn:
@@ -119,7 +153,8 @@ def claim_daily_reward(user_id) -> tuple[bool, int, str]:
     Attempt to claim daily reward (resets at 00:00 UTC).
     Returns: (success, new_balance, message)
     """
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
 
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -137,7 +172,9 @@ def claim_daily_reward(user_id) -> tuple[bool, int, str]:
         balance = cursor.fetchone()[0]
 
     if not claimed:
-        return False, balance, "You've already claimed your daily reward today. Try again after 00:00 UTC!"
+        seconds_left = int((now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1) - now).total_seconds())
+        hours, minutes = divmod(seconds_left // 60, 60)
+        return False, balance, f"You've already claimed your daily reward today. Next one in **{hours}h {minutes}m**."
     if is_new:
         return True, balance, f"Welcome! You've received 💰 {STARTING_BALANCE} starting balance + 💰 {DAILY_REWARD} daily reward!"
     return True, balance, f"You've claimed your daily reward of 💰 {DAILY_REWARD}!"

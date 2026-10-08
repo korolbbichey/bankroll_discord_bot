@@ -5,16 +5,44 @@ Economy commands for the BankRoll Discord Bot.
 import discord
 from discord import app_commands
 
-from ..database import get_balance, get_leaderboard, claim_daily_reward, get_user_profile
+from ..config import MAX_TRANSFER
+from ..database import get_balance, get_leaderboard, get_rank, claim_daily_reward, get_user_profile, transfer
+
+LEADERBOARD_SIZE = 10
 
 
 def setup(client):
     """Setup economy commands."""
 
-    @client.tree.command(name="balance", description="Check your virtual currency balance")
-    async def balance(interaction: discord.Interaction):
-        user_balance = get_balance(interaction.user.id)
-        await interaction.response.send_message(f"{interaction.user.name}, your balance is 💰 {user_balance}")
+    @client.tree.command(name="balance", description="Check your or another player's balance")
+    @app_commands.describe(user="The player to check (leave empty for yourself)")
+    async def balance(interaction: discord.Interaction, user: discord.User = None):
+        target = user or interaction.user
+        if target.bot:
+            await interaction.response.send_message("❌ Bots don't have a balance.", ephemeral=True)
+            return
+        user_balance = get_balance(target.id)
+        who = "Your" if target == interaction.user else f"{target.name}'s"
+        await interaction.response.send_message(f"💰 {who} balance: **{user_balance}** coins")
+
+    @client.tree.command(name="pay", description="Send coins to another player")
+    @app_commands.describe(user="Who to send coins to", amount="How many coins to send")
+    async def pay(interaction: discord.Interaction, user: discord.User, amount: app_commands.Range[int, 1, MAX_TRANSFER]):
+        if user.id == interaction.user.id:
+            await interaction.response.send_message("❌ You can't pay yourself.", ephemeral=True)
+            return
+        if user.bot:
+            await interaction.response.send_message("❌ You can't pay a bot.", ephemeral=True)
+            return
+        if not transfer(interaction.user.id, user.id, amount):
+            await interaction.response.send_message(
+                f"❌ Not enough coins. Your balance: 💰 {get_balance(interaction.user.id)}", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(
+            f"💸 {interaction.user.mention} sent **{amount}** coins to {user.mention}!\n"
+            f"Your balance: 💰 {get_balance(interaction.user.id)}"
+        )
 
     @client.tree.command(name="daily_reward", description="Claim your daily reward")
     async def daily_reward(interaction: discord.Interaction):
@@ -27,7 +55,7 @@ def setup(client):
 
     @client.tree.command(name="leaderboard", description="Show the top users with the most virtual currency")
     async def leaderboard(interaction: discord.Interaction):
-        rows = get_leaderboard(5)
+        rows = get_leaderboard(LEADERBOARD_SIZE)
 
         if not rows:
             await interaction.response.send_message("No currency data available yet.", ephemeral=True)
@@ -38,9 +66,11 @@ def setup(client):
 
         embed = discord.Embed(
             title="🏆 Leaderboard — Top Richest Players",
-            description="Here are the top 5 users with the highest balance!",
             color=discord.Color.gold()
         )
+        rank = get_rank(interaction.user.id)
+        if rank:
+            embed.set_footer(text=f"Your position: #{rank} • 💰 {get_balance(interaction.user.id)}")
 
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
         for i, (user_id, user_balance) in enumerate(rows, start=1):

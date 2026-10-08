@@ -10,9 +10,11 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 - **Coin Flip** (`/coinflip <guess> <bet>`) - Simple heads/tails game with 2x payout
 
 ### Economy System
-- **Balance** (`/balance`) - Check your virtual currency
-- **Daily Reward** (`/daily_reward`) - Claim 50 coins daily
-- **Leaderboard** (`/leaderboard`) - View top 5 richest players
+- **Balance** (`/balance [@user]`) - Check your own or another player's coins
+- **Daily Reward** (`/daily_reward`) - Claim 50 coins daily (shows time until the next one)
+- **Pay** (`/pay <@user> <amount>`) - Send coins to another player
+- **Leaderboard** (`/leaderboard`) - Top 10 richest players and your own position
+- **Help** (`/help`) - Command list, slot payouts and Terms of Service
 
 ### User Profiles
 - **Profile** (`/profile [@user]`) - View comprehensive stats including:
@@ -21,9 +23,10 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
   - Separate Blackjack statistics
 
 ### Admin Commands
-Balances are shared across every server, so these are restricted to the **bot owner** (the application owner in the Developer Portal, plus anyone listed in `OWNER_IDS`):
-- **Add Balance** (`/add_balance <user> <amount>`) - add currency to a player
-- **Remove Balance** (`/remove_balance <user> <amount>`) - remove currency from a player
+Balances are shared across every server, so admin commands are restricted to the **bot owner** (the application owner in the Developer Portal, plus anyone listed in `OWNER_IDS`). They are registered **only in the server set by `ADMIN_GUILD_ID`**, so they don't appear anywhere else or on the bot's profile. If `ADMIN_GUILD_ID` is not set, they are disabled.
+- `/admin give <user> <amount>` - add coins to a player
+- `/admin take <user> <amount>` - remove coins from a player
+- `/admin set <user> <amount>` - set an exact balance
 
 ## Project Structure
 
@@ -42,9 +45,9 @@ bankroll_discord_bot/
 │   │
 │   ├── commands/          # Command modules
 │   │   ├── __init__.py
-│   │   ├── economy.py     # Balance, daily, leaderboard, profile
-│   │   ├── admin.py       # Admin commands
-│   │   └── general.py     # Help, ToS
+│   │   ├── economy.py     # Balance, daily, pay, leaderboard, profile
+│   │   ├── admin.py       # /admin give|take|set (private server only)
+│   │   └── general.py     # Help
 │   │
 │   └── games/             # Game modules
 │       ├── __init__.py
@@ -87,7 +90,7 @@ bankroll_discord_bot/
 ## Deploying to Railway
 
 1. Push the repo to GitHub and create a new Railway project from it. `railway.json` sets the start command (`python main.py`) and restart policy.
-2. In the service **Variables**, add `DISCORD_BOT_TOKEN` (and optionally `OWNER_IDS`).
+2. In the service **Variables**, add `DISCORD_BOT_TOKEN` (and optionally `ADMIN_GUILD_ID` / `OWNER_IDS`).
 3. **Attach a Volume** to the service (e.g. mount path `/data`). The bot automatically stores `bot_data.db` in the volume via `RAILWAY_VOLUME_MOUNT_PATH`. Without a volume, all balances are wiped on every redeploy.
 4. No public domain or port is needed — the bot only makes outbound connections.
 
@@ -101,6 +104,7 @@ Environment variables:
 |----------|----------|-------------|
 | `DISCORD_BOT_TOKEN` | yes | Bot token |
 | `OWNER_IDS` | no | Comma-separated user IDs allowed to use admin commands |
+| `ADMIN_GUILD_ID` | no | ID of your private server where `/admin` commands appear (disabled if unset) |
 | `DB_PATH` | no | Full path to the SQLite file (overrides the Railway volume default) |
 
 Edit `bot/config.py` to customize settings:

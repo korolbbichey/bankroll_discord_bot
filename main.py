@@ -12,7 +12,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 # Import bot modules
-from bot.config import DB_FILE
+from bot.config import DB_FILE, ADMIN_GUILD_ID
 from bot.database import init_db
 from bot.commands import economy, admin, general
 from bot.games import slots, blackjack, coinflip
@@ -55,13 +55,19 @@ class BankRollBot(commands.Bot):
 
         synced = await self.tree.sync()
         logger.info("Synced %d command(s) globally.", len(synced))
+        if ADMIN_GUILD_ID:
+            synced = await self.tree.sync(guild=discord.Object(ADMIN_GUILD_ID))
+            logger.info("Synced %d admin command(s) to guild %d.", len(synced), ADMIN_GUILD_ID)
 
     async def on_ready(self):
         logger.info("Logged on as %s (in %d servers)", self.user, len(self.guilds))
 
     async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        logger.error("Error in /%s", interaction.command.name if interaction.command else "?", exc_info=error)
-        message = "❌ Something went wrong. Please try again."
+        if isinstance(error, app_commands.CheckFailure):
+            message = "❌ You don't have permission to use this command."
+        else:
+            logger.error("Error in /%s", interaction.command.qualified_name if interaction.command else "?", exc_info=error)
+            message = "❌ Something went wrong. Please try again."
         try:
             if interaction.response.is_done():
                 await interaction.followup.send(message, ephemeral=True)
