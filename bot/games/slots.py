@@ -136,8 +136,11 @@ class SlotView(discord.ui.View):
         finally:
             self.spinning = False
 
-        if payout:
-            outcome = f"🎉 {lines} winning line{'s' if lines > 1 else ''}! Payout **{payout}** (+{payout - self.bet})"
+        line_text = f"{lines} winning line{'s' if lines > 1 else ''}"
+        if payout > self.bet:
+            outcome = f"🎉 {line_text}! Payout **{payout}** (+{payout - self.bet})"
+        elif payout == self.bet:
+            outcome = f"🔁 {line_text} — your bet of **{self.bet}** is returned."
         else:
             outcome = f"😢 No luck. You lost **{self.bet}**."
         self.last_result = f"🎰 Final Result!\n{format_grid(final_grid)}\n{outcome}\n💰 Balance: **{new_balance}**"

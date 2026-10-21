@@ -25,25 +25,26 @@ STARTING_BALANCE = 100
 MAX_TRANSFER = 1_000_000
 
 # Slot machine configuration
-SLOT_SYMBOLS = ["\U0001f352", "\U0001f349", "\U0001f514", "⭐", "\U0001f48e", "\U0001f921"]
+SLOT_SYMBOLS = ["\U0001f34b", "\U0001f352", "\U0001f349", "\U0001f514", "⭐", "\U0001f48e"]
 
 SYMBOL_WEIGHTS = {
+    "\U0001f34b": 0.3,
     "\U0001f352": 0.27,
     "\U0001f349": 0.2,
     "\U0001f514": 0.1,
     "⭐": 0.08,
-    "\U0001f48e": 0.05,
-    "\U0001f921": 0.3
+    "\U0001f48e": 0.05
 }
 
 # Multiplier per winning line. All 8 lines (3 rows, 3 columns, 2 diagonals) pay and are summed.
-# With these weights the expected return is ~95.3% of the bet.
+# Expected return = 8 * sum(weight^3 * multiplier) = ~95.6% of the bet.
 SLOT_PAYOUTS = {
+    "\U0001f34b\U0001f34b\U0001f34b": 1,
     "\U0001f352\U0001f352\U0001f352": 2,
-    "\U0001f349\U0001f349\U0001f349": 5,
-    "\U0001f514\U0001f514\U0001f514": 15,
-    "⭐⭐⭐": 30,
-    "\U0001f48e\U0001f48e\U0001f48e": 75
+    "\U0001f349\U0001f349\U0001f349": 3,
+    "\U0001f514\U0001f514\U0001f514": 10,
+    "⭐⭐⭐": 25,
+    "\U0001f48e\U0001f48e\U0001f48e": 50
 }
 
 # Game timeouts (in seconds)

@@ -122,11 +122,12 @@ Every line (3 rows, 3 columns, 2 diagonals) is checked and all winning lines are
 
 | Symbol | Payout per line |
 |--------|--------|
+| 3x Lemon (🍋) | 1x bet |
 | 3x Cherry (🍒) | 2x bet |
-| 3x Watermelon (🍉) | 5x bet |
-| 3x Bell (🔔) | 15x bet |
-| 3x Star (⭐) | 30x bet |
-| 3x Diamond (💎) | 75x bet |
+| 3x Watermelon (🍉) | 3x bet |
+| 3x Bell (🔔) | 10x bet |
+| 3x Star (⭐) | 25x bet |
+| 3x Diamond (💎) | 50x bet |
 
 ## Adding New Games
 

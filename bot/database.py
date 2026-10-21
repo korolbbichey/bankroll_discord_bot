@@ -67,6 +67,8 @@ def init_db():
             count INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, symbol)
         )''')
+        # The clown symbol was removed from the slots.
+        cursor.execute("DELETE FROM symbol_counts WHERE symbol = ?", ("\U0001f921",))
 
 
 def _ensure_account(cursor, user_id):
@@ -194,9 +196,11 @@ def update_stats(user_id, payout: int, bet: int, final_grid=None):
     """
     Record a finished slots/coinflip round.
     payout is the total amount returned to the player (0 on a loss).
+    A payout equal to the bet counts as a game played but neither a win nor a loss.
     """
     profit = max(0, payout - bet)
     win = payout > bet
+    loss = payout < bet
 
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -209,7 +213,7 @@ def update_stats(user_id, payout: int, bet: int, final_grid=None):
                 losses = losses + excluded.losses,
                 total_earned = total_earned + excluded.total_earned,
                 largest_win = MAX(largest_win, excluded.largest_win)
-        """, (user_id, int(win), int(not win), profit, profit))
+        """, (user_id, int(win), int(loss), profit, profit))
 
         if final_grid is not None:
             for row in final_grid:
