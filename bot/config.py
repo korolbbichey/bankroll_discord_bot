@@ -17,6 +17,9 @@ OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(" ", "").split("
 # anywhere else, so they don't show up in other servers or on the bot's profile.
 ADMIN_GUILD_ID = int(os.getenv("ADMIN_GUILD_ID") or 0) or None
 
+# Custom status shown under the bot's name. Set BOT_STATUS to change it, or to an empty value to hide it.
+BOT_STATUS = os.getenv("BOT_STATUS", "🎰 Type /help to play")
+
 # Economy settings
 MAX_BET = 10000
 MIN_BET = 1

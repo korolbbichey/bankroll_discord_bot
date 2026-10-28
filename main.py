@@ -12,7 +12,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 # Import bot modules
-from bot.config import DB_FILE, ADMIN_GUILD_ID
+from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS
 from bot.database import init_db
 from bot.commands import economy, admin, general
 from bot.games import slots, blackjack, coinflip
@@ -39,7 +39,12 @@ class BankRollBot(commands.Bot):
 
     def __init__(self):
         # Slash commands only — no privileged intents needed
-        super().__init__(command_prefix=commands.when_mentioned, intents=discord.Intents.default(), help_command=None)
+        super().__init__(
+            command_prefix=commands.when_mentioned,
+            intents=discord.Intents.default(),
+            help_command=None,
+            activity=discord.CustomActivity(name=BOT_STATUS) if BOT_STATUS else None,
+        )
 
     async def setup_hook(self):
         """Register and sync commands once at startup (on_ready can fire on every reconnect)."""
