@@ -35,6 +35,19 @@ def build_help_embed() -> discord.Embed:
     return embed
 
 
+def build_announcement_embed() -> discord.Embed:
+    """The one-time update announcement (see ANNOUNCEMENT_ID in config)."""
+    embed = discord.Embed(
+        title="🎰 Slots update is here!",
+        description="No more clowns — every cell now holds a real symbol, and **every line pays**.",
+        color=discord.Color.gold(),
+    )
+    payouts = [f"{combo} **{multiplier}x**" for combo, multiplier in SLOT_PAYOUTS.items()]
+    embed.add_field(name="Payouts per line", value="\n".join(payouts), inline=False)
+    embed.set_footer(text="Play with /slots • All commands: /help")
+    return embed
+
+
 def setup(client):
     """Setup general commands."""
 
