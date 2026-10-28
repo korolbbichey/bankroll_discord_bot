@@ -1,6 +1,7 @@
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
-from bot.config import STARTING_BALANCE, DAILY_REWARD
+from bot.config import STARTING_BALANCE, DAILY_REWARD, DAILY_STREAK_REWARDS
 
 
 def test_new_user_has_starting_balance(db):
@@ -31,20 +32,54 @@ def test_transfer(db):
     assert db.get_balance(1) == STARTING_BALANCE - 40
 
 
+DAY_1 = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
+
+
+def day(n: int, hour: int = 12) -> datetime:
+    """Noon (by default) on the n-th day of the test calendar, starting at 1."""
+    return DAY_1 + timedelta(days=n - 1, hours=hour - 12)
+
+
 def test_daily_reward_once_per_day(db):
-    ok, balance, message = db.claim_daily_reward(1)
-    assert ok and balance == STARTING_BALANCE + DAILY_REWARD and "Welcome" in message
-    ok, _, message = db.claim_daily_reward(1)
-    assert not ok and "Next one in" in message
+    claim = db.claim_daily_reward(1, now=day(1))
+    assert claim.claimed and claim.is_new
+    assert claim.balance == STARTING_BALANCE + DAILY_REWARD
+    assert (claim.streak, claim.reward, claim.next_reward) == (1, DAILY_REWARD, DAILY_STREAK_REWARDS[1])
+    assert claim.seconds_left == 12 * 3600
+
+    again = db.claim_daily_reward(1, now=day(1, hour=23))
+    assert not again.claimed and again.reward == 0
+    assert again.balance == claim.balance and again.streak == 1
+
+
+def test_daily_streak_grows_and_caps(db):
+    rewards = [db.claim_daily_reward(1, now=day(n)).reward for n in range(1, 11)]
+    assert rewards == DAILY_STREAK_REWARDS + [DAILY_STREAK_REWARDS[-1]] * 3
+    assert db.claim_daily_reward(1, now=day(11)).streak == 11
+
+
+def test_missing_a_day_resets_the_streak(db):
+    db.claim_daily_reward(1, now=day(1))
+    db.claim_daily_reward(1, now=day(2))
+    assert db.get_daily_streak(1, now=day(3)) == 2, "still active the day after a claim"
+    assert db.get_daily_streak(1, now=day(4)) == 0, "lost after a missed day"
+    claim = db.claim_daily_reward(1, now=day(4))
+    assert (claim.streak, claim.reward) == (1, DAILY_REWARD)
+
+
+def test_streak_counts_utc_calendar_days(db):
+    db.claim_daily_reward(1, now=day(1, hour=23))
+    claim = db.claim_daily_reward(1, now=day(2, hour=0))  # one hour later, but a new UTC day
+    assert claim.claimed and claim.streak == 2
 
 
 def test_playing_does_not_reset_daily_reward(db):
     """Regression: REPLACE INTO used to wipe last_claim_date, allowing unlimited daily rewards."""
-    db.claim_daily_reward(1)
+    db.claim_daily_reward(1, now=day(1))
     db.try_debit(1, 10)
     db.credit(1, 20)
     db.set_balance(1, 500)
-    assert not db.claim_daily_reward(1)[0]
+    assert not db.claim_daily_reward(1, now=day(1)).claimed
 
 
 def test_update_stats_counts_push_as_neither(db):
@@ -125,4 +160,5 @@ def test_init_db_migrates_old_schema(db, tmp_path, monkeypatch):
     db.init_db()  # running twice is safe
     assert db.get_balance(1) == 777
     assert db.save_username(1, "Old player")
+    assert db.claim_daily_reward(1).streak == 1, "daily_streak column was added"
     assert db.get_user_profile(1)["most_common_symbol"] == "🍒"

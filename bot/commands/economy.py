@@ -5,14 +5,18 @@ Economy commands for the BankRoll Discord Bot.
 import discord
 from discord import app_commands
 
-from ..config import MAX_TRANSFER
+from ..config import MAX_TRANSFER, STARTING_BALANCE
 from ..database import (
-    get_balance, get_leaderboard, get_rank, get_player_count, claim_daily_reward,
+    get_balance, get_leaderboard, get_rank, get_player_count, claim_daily_reward, get_daily_streak,
     get_user_profile, transfer, save_username,
 )
 from ..utils import fmt, display_name
 
 LEADERBOARD_SIZE = 10
+
+
+def streak_text(days: int) -> str:
+    return f"{days} day{'s' if days != 1 else ''}"
 
 
 def win_rate(wins: int, losses: int) -> str:
@@ -54,14 +58,30 @@ def setup(client):
             f"Your balance: 💰 {fmt(get_balance(interaction.user.id))}"
         )
 
-    @client.tree.command(name="daily_reward", description="Claim your daily reward")
+    @client.tree.command(name="daily_reward", description="Claim your daily reward — keep a streak for bigger rewards")
     async def daily_reward(interaction: discord.Interaction):
-        success, new_balance, message = claim_daily_reward(interaction.user.id)
+        claim = claim_daily_reward(interaction.user.id)
+        hours, minutes = divmod(claim.seconds_left // 60, 60)
+        wait = f"{hours}h {minutes}m"
 
-        if success:
-            await interaction.response.send_message(f"✅ {message} Your new balance is 💰 {fmt(new_balance)}.", ephemeral=True)
-        else:
-            await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+        if not claim.claimed:
+            embed = discord.Embed(
+                title="⏳ Already claimed today",
+                description=f"Your next reward of **{fmt(claim.next_reward)}** coins is ready in **{wait}**.",
+                color=discord.Color.light_grey(),
+            )
+            embed.add_field(name="🔥 Streak", value=streak_text(claim.streak), inline=True)
+            embed.add_field(name="💰 Balance", value=fmt(claim.balance), inline=True)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        embed = discord.Embed(title=f"🎁 +{fmt(claim.reward)} coins!", color=discord.Color.green())
+        if claim.is_new:
+            embed.description = f"Welcome to Bankroll! You also got **{fmt(STARTING_BALANCE)}** starting coins."
+        embed.add_field(name="🔥 Streak", value=streak_text(claim.streak), inline=True)
+        embed.add_field(name="💰 Balance", value=fmt(claim.balance), inline=True)
+        embed.set_footer(text=f"Come back in {wait} for {fmt(claim.next_reward)} coins. Miss a day and the streak resets.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @client.tree.command(name="leaderboard", description="Show the top users with the most virtual currency")
     async def leaderboard(interaction: discord.Interaction):
@@ -130,9 +150,12 @@ def setup(client):
         embed.set_thumbnail(url=target.display_avatar.url)
 
         rank = get_rank(target.id)
+        streak = get_daily_streak(target.id)
         embed.add_field(
             name="💰 Balance",
-            value=f"**{fmt(profile_data['balance'])}** coins" + (f" • Rank #{rank}" if rank else ""),
+            value=f"**{fmt(profile_data['balance'])}** coins"
+                  + (f" • Rank #{rank}" if rank else "")
+                  + (f" • 🔥 {streak_text(streak)} streak" if streak else ""),
             inline=False,
         )
         embed.add_field(name="🎰 Slots & Coinflip", value=(

@@ -31,6 +31,9 @@ def setup(client):
         description="Bot owner tools",
         guild_ids=[ADMIN_GUILD_ID],
         default_permissions=discord.Permissions(administrator=True),
+        # Never available through User Install or in DMs, unlike the public commands.
+        allowed_installs=app_commands.AppInstallationType(guild=True, user=False),
+        allowed_contexts=app_commands.AppCommandContext(guild=True, dm_channel=False, private_channel=False),
     )
 
     @admin.command(name="give", description="Add coins to a player")

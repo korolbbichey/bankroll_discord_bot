@@ -29,6 +29,9 @@ ANNOUNCEMENT_ID = "2026-10-global-update"
 MAX_BET = 10000
 MIN_BET = 1
 DAILY_REWARD = 50
+# Daily reward by streak day (claiming on consecutive UTC days). Day 1 = DAILY_REWARD,
+# after the last entry the reward stays at the maximum. Missing a day resets the streak.
+DAILY_STREAK_REWARDS = [DAILY_REWARD, 55, 60, 70, 80, 90, 100]
 STARTING_BALANCE = 100
 MAX_TRANSFER = 1_000_000
 

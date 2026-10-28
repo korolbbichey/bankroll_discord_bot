@@ -11,7 +11,7 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 
 ### Economy System
 - **Balance** (`/balance [@user]`) - Check your own or another player's coins
-- **Daily Reward** (`/daily_reward`) - Claim 50 coins daily (shows time until the next one)
+- **Daily Reward** (`/daily_reward`) - Claim coins every day; consecutive days build a 🔥 streak (50 → 55 → 60 → 70 → 80 → 90 → 100 coins, configurable via `DAILY_STREAK_REWARDS`). Missing a day resets the streak
 - **Pay** (`/pay <@user> <amount>`) - Send coins to another player
 - **Leaderboard** (`/leaderboard`) - Top 10 richest players and your own position
 - **Help** (`/help`) - Command list, slot payouts and Terms of Service
@@ -86,6 +86,14 @@ bankroll_discord_bot/
    ```bash
    python main.py
    ```
+
+## Installing the Bot
+
+Bankroll supports both install types (Developer Portal → **Installation**):
+- **Guild Install** (scopes `applications.commands` + `bot`) — a server admin adds the bot to a server.
+- **User Install** (scope `applications.commands`) — any user adds the bot to their own profile and can use every public command on any server, in DMs and in group chats, even where the bot isn't installed. In large servers (over 25 members) where the bot isn't installed, Discord shows its replies only to the player.
+
+The `/admin` commands are always limited to the `ADMIN_GUILD_ID` server.
 
 ## Deploying to Railway
 

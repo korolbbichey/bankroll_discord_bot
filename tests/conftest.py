@@ -43,11 +43,16 @@ def make_user(user_id: int, name: str = None, global_name: str = None, bot: bool
     return user
 
 
-def make_interaction(user_id: int = 1, guild_id: int | None = 100, done: bool = True, user=None):
-    """A fake discord.Interaction whose responses are recorded instead of sent."""
+def make_interaction(user_id: int = 1, guild_id: int | None = 100, done: bool = True, user=None,
+                     guild_installed: bool = True):
+    """
+    A fake discord.Interaction whose responses are recorded instead of sent.
+    guild_installed=False simulates using the bot through a user's profile (User Install) in a server.
+    """
     interaction = MagicMock()
     interaction.user = user or make_user(user_id)
     interaction.guild_id = guild_id
+    interaction.is_guild_integration = lambda: guild_id is not None and guild_installed
 
     # is_done() becomes True once the interaction has been responded to, like in discord.py
     state = {"done": done}

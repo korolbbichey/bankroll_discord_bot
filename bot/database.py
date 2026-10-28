@@ -8,9 +8,10 @@ concurrent games can never read a stale balance and overwrite each other.
 import os
 import sqlite3
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from .config import DB_FILE, STARTING_BALANCE, DAILY_REWARD
+from .config import DB_FILE, STARTING_BALANCE, DAILY_STREAK_REWARDS
 
 
 @contextmanager
@@ -77,6 +78,8 @@ def init_db():
         currency_columns = [row[1] for row in cursor.execute("PRAGMA table_info(currency)")]
         if "username" not in currency_columns:
             cursor.execute("ALTER TABLE currency ADD COLUMN username TEXT")
+        if "daily_streak" not in currency_columns:
+            cursor.execute("ALTER TABLE currency ADD COLUMN daily_streak INTEGER DEFAULT 0")
 
         # The clown symbol was removed from the slots.
         cursor.execute("DELETE FROM symbol_counts WHERE symbol = ?", ("\U0001f921",))
@@ -189,36 +192,69 @@ def save_username(user_id, username: str) -> bool:
         return True
 
 
-def claim_daily_reward(user_id) -> tuple[bool, int, str]:
+def daily_reward_for(streak: int) -> int:
+    """Reward for the given streak day (1-based); stays at the maximum after the last configured day."""
+    return DAILY_STREAK_REWARDS[min(max(streak, 1), len(DAILY_STREAK_REWARDS)) - 1]
+
+
+@dataclass
+class DailyClaim:
+    claimed: bool        # False if the reward was already claimed today
+    balance: int
+    streak: int          # current streak in days
+    reward: int          # coins given now (0 if not claimed)
+    next_reward: int     # reward for tomorrow if the streak continues
+    seconds_left: int    # until the next reward becomes available (00:00 UTC)
+    is_new: bool = False # the claim created the account (starting balance included)
+
+
+def claim_daily_reward(user_id, now: datetime | None = None) -> DailyClaim:
     """
-    Attempt to claim daily reward (resets at 00:00 UTC).
-    Returns: (success, new_balance, message)
+    Claim the daily reward (resets at 00:00 UTC). Claiming on consecutive days builds a streak
+    with growing rewards (DAILY_STREAK_REWARDS); missing a day starts again from day 1.
     """
-    now = datetime.now(timezone.utc)
+    now = now or datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
+    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    seconds_left = int((now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1) - now).total_seconds())
 
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM currency WHERE user_id = ?", (user_id,))
-        is_new = cursor.fetchone() is None
-        _ensure_account(cursor, user_id)
+        cursor.execute("SELECT balance, last_claim_date, daily_streak FROM currency WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        is_new = row is None
+        last_claim, old_streak = (row[1], row[2] or 0) if row else (None, 0)
 
+        if last_claim == today:
+            return DailyClaim(False, row[0], old_streak, 0, daily_reward_for(old_streak + 1), seconds_left)
+
+        streak = old_streak + 1 if last_claim == yesterday else 1
+        reward = daily_reward_for(streak)
+        _ensure_account(cursor, user_id)
+        # The date condition makes the claim atomic: of two simultaneous claims only one updates the row.
         cursor.execute("""
-            UPDATE currency SET balance = balance + ?, last_claim_date = ?
+            UPDATE currency SET balance = balance + ?, last_claim_date = ?, daily_streak = ?
             WHERE user_id = ? AND (last_claim_date IS NULL OR last_claim_date != ?)
-        """, (DAILY_REWARD, today, user_id, today))
+        """, (reward, today, streak, user_id, today))
         claimed = cursor.rowcount == 1
 
-        cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,))
-        balance = cursor.fetchone()[0]
+        cursor.execute("SELECT balance, daily_streak FROM currency WHERE user_id = ?", (user_id,))
+        balance, current_streak = cursor.fetchone()
 
     if not claimed:
-        seconds_left = int((now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1) - now).total_seconds())
-        hours, minutes = divmod(seconds_left // 60, 60)
-        return False, balance, f"You've already claimed your daily reward today. Next one in **{hours}h {minutes}m**."
-    if is_new:
-        return True, balance, f"Welcome! You've received 💰 {STARTING_BALANCE} starting balance + 💰 {DAILY_REWARD} daily reward!"
-    return True, balance, f"You've claimed your daily reward of 💰 {DAILY_REWARD}!"
+        return DailyClaim(False, balance, current_streak, 0, daily_reward_for(current_streak + 1), seconds_left)
+    return DailyClaim(True, balance, streak, reward, daily_reward_for(streak + 1), seconds_left, is_new)
+
+
+def get_daily_streak(user_id, now: datetime | None = None) -> int:
+    """The user's active streak: kept if they claimed today or yesterday, otherwise 0."""
+    now = now or datetime.now(timezone.utc)
+    active_dates = (now.strftime("%Y-%m-%d"), (now - timedelta(days=1)).strftime("%Y-%m-%d"))
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT last_claim_date, daily_streak FROM currency WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+    return (row[1] or 0) if row and row[0] in active_dates else 0
 
 
 def mark_announcement_shown(target_id, announcement_id: str) -> bool:

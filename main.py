@@ -45,6 +45,10 @@ class BankRollBot(commands.Bot):
             intents=discord.Intents.default(),
             help_command=None,
             activity=discord.CustomActivity(name=BOT_STATUS) if BOT_STATUS else None,
+            # Commands work when the bot is added to a server *or* to a user's profile (User Install),
+            # and can be used in servers, DMs and group chats.
+            allowed_installs=app_commands.AppInstallationType(guild=True, user=True),
+            allowed_contexts=app_commands.AppCommandContext(guild=True, dm_channel=True, private_channel=True),
         )
         self.known_names: dict[int, str] = {}
 
@@ -85,14 +89,17 @@ class BankRollBot(commands.Bot):
             logger.exception("Failed to save username")
 
     async def maybe_announce(self, interaction: discord.Interaction):
-        """Post the current update announcement once per server, publicly, in the channel the command was used in.
-        Outside servers (DMs) it is shown once per user, privately."""
+        """
+        Post the current update announcement once per server, publicly, in the channel the command was used in.
+        This only happens in servers where the bot is installed: when it is used through a user's profile
+        (User Install), Discord may hide replies from the rest of the server, so it is shown once per user, privately.
+        """
         if not ANNOUNCEMENT_ID or not interaction.response.is_done():
             return
-        in_server = interaction.guild_id is not None
+        public = interaction.is_guild_integration()
         try:
-            if mark_announcement_shown(interaction.guild_id if in_server else interaction.user.id, ANNOUNCEMENT_ID):
-                await interaction.followup.send(embed=general.build_announcement_embed(), ephemeral=not in_server)
+            if mark_announcement_shown(interaction.guild_id if public else interaction.user.id, ANNOUNCEMENT_ID):
+                await interaction.followup.send(embed=general.build_announcement_embed(), ephemeral=not public)
         except Exception:
             logger.exception("Failed to send announcement")
 
