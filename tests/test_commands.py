@@ -137,5 +137,8 @@ def test_help_embed_lists_payouts(bot):
 
 def test_announcement_embed():
     embed = main.general.build_announcement_embed()
-    assert "every line pays" in embed.description
+    assert embed.title == "🆕 Bankroll Global Update!"
+    assert [f.name for f in embed.fields] == ["🎰 New slots", "🃏 Blackjack", "💸 Economy", "✨ Fresh look"]
+    assert "🍋 1x" in embed.fields[0].value and "💎 50x" in embed.fields[0].value
     assert discord.Color.gold() == embed.color
+    assert len(embed) <= 6000, "within Discord's embed size limit"

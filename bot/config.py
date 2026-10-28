@@ -18,12 +18,12 @@ OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(" ", "").split("
 ADMIN_GUILD_ID = int(os.getenv("ADMIN_GUILD_ID") or 0) or None
 
 # Custom status shown under the bot's name. Set BOT_STATUS to change it, or to an empty value to hide it.
-BOT_STATUS = os.getenv("BOT_STATUS", "🆕 New slots update! Type /help to start")
+BOT_STATUS = os.getenv("BOT_STATUS", "🆕 Global update! Type /help to start")
 
 # One-time update notice, posted publicly once per server after the first command used there.
 # The embed itself is built in bot/commands/general.py (build_announcement_embed).
 # Change ANNOUNCEMENT_ID to show a new announcement to everyone again; set it to "" to disable.
-ANNOUNCEMENT_ID = "2026-10-new-slots"
+ANNOUNCEMENT_ID = "2026-10-global-update"
 
 # Economy settings
 MAX_BET = 10000

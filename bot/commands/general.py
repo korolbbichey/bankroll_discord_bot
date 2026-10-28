@@ -39,13 +39,23 @@ def build_help_embed() -> discord.Embed:
 def build_announcement_embed() -> discord.Embed:
     """The one-time update announcement (see ANNOUNCEMENT_ID in config)."""
     embed = discord.Embed(
-        title="🎰 Slots update is here!",
-        description="No more clowns — every cell now holds a real symbol, and **every line pays**.",
+        title="🆕 Bankroll Global Update!",
+        description="Bankroll just got a big upgrade — here's what's new:",
         color=discord.Color.gold(),
     )
-    payouts = [f"{combo} **{multiplier}x**" for combo, multiplier in SLOT_PAYOUTS.items()]
-    embed.add_field(name="Payouts per line", value="\n".join(payouts), inline=False)
-    embed.set_footer(text="Play with /slots • All commands: /help")
+    payouts = " · ".join(f"{combo[0]} {multiplier}x" for combo, multiplier in SLOT_PAYOUTS.items())
+    embed.add_field(name="🎰 New slots", value=(
+        "No more clowns, and **every line pays** — rows, columns and diagonals.\n"
+        f"{payouts}\n"
+        "Results now show exactly which lines won."
+    ), inline=False)
+    embed.add_field(name="🃏 Blackjack", value="New **Double down** button, and blackjack pays 3:2.", inline=False)
+    embed.add_field(name="💸 Economy", value=(
+        "`/pay` — send coins to friends\n"
+        "`/daily_reward` — shows when your next reward is ready"
+    ), inline=False)
+    embed.add_field(name="✨ Fresh look", value="Redesigned `/leaderboard` and `/profile`, and a fairer, more stable bot.", inline=False)
+    embed.set_footer(text="Start with /help • Have fun!")
     return embed
 
 
