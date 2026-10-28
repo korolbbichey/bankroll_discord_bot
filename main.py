@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 
 # Import bot modules
 from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
-from bot.database import init_db, mark_announcement_shown
+from bot.database import init_db, mark_announcement_shown, save_username
+from bot.utils import display_name
 from bot.commands import economy, admin, general
 from bot.games import slots, blackjack, coinflip
 
@@ -45,6 +46,7 @@ class BankRollBot(commands.Bot):
             help_command=None,
             activity=discord.CustomActivity(name=BOT_STATUS) if BOT_STATUS else None,
         )
+        self.known_names: dict[int, str] = {}
 
     async def setup_hook(self):
         """Register and sync commands once at startup (on_ready can fire on every reconnect)."""
@@ -68,6 +70,21 @@ class BankRollBot(commands.Bot):
         logger.info("Logged on as %s (in %d servers)", self.user, len(self.guilds))
 
     async def on_app_command_completion(self, interaction: discord.Interaction, command):
+        self.remember_name(interaction.user)
+        await self.maybe_announce(interaction)
+
+    def remember_name(self, user: discord.abc.User):
+        """Keep the player's display name in the database for the leaderboard (DB write only when it changes)."""
+        name = display_name(user)
+        if self.known_names.get(user.id) == name:
+            return
+        try:
+            if save_username(user.id, name):
+                self.known_names[user.id] = name
+        except Exception:
+            logger.exception("Failed to save username")
+
+    async def maybe_announce(self, interaction: discord.Interaction):
         """Post the current update announcement once per server, publicly, in the channel the command was used in.
         Outside servers (DMs) it is shown once per user, privately."""
         if not ANNOUNCEMENT_ID or not interaction.response.is_done():

@@ -73,6 +73,11 @@ def init_db():
             announcement_id TEXT NOT NULL
         )''')
 
+        # Display names are cached for the leaderboard, so it doesn't need Discord API calls.
+        currency_columns = [row[1] for row in cursor.execute("PRAGMA table_info(currency)")]
+        if "username" not in currency_columns:
+            cursor.execute("ALTER TABLE currency ADD COLUMN username TEXT")
+
         # The clown symbol was removed from the slots.
         cursor.execute("DELETE FROM symbol_counts WHERE symbol = ?", ("\U0001f921",))
 
@@ -155,13 +160,29 @@ def get_player_count() -> int:
         return cursor.fetchone()[0]
 
 
-def get_leaderboard(limit: int = 5) -> list:
-    """Get top users by balance."""
+def get_leaderboard(limit: int = 5) -> list[tuple[int, int, str | None]]:
+    """Get top users by balance as (user_id, balance, username)."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT user_id, balance FROM currency ORDER BY balance DESC LIMIT ?",
+        cursor.execute("SELECT user_id, balance, username FROM currency ORDER BY balance DESC LIMIT ?",
                        (limit,))
         return cursor.fetchall()
+
+
+def save_username(user_id, username: str) -> bool:
+    """
+    Store the user's display name if they have an account. Only writes when the name changed.
+    Returns False if the user has no account yet.
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT username FROM currency WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row is None:
+            return False
+        if row[0] != username:
+            cursor.execute("UPDATE currency SET username = ? WHERE user_id = ?", (username, user_id))
+        return True
 
 
 def claim_daily_reward(user_id) -> tuple[bool, int, str]:

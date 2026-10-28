@@ -9,19 +9,19 @@ import asyncio
 
 from ..config import MIN_BET, MAX_BET
 from ..database import get_balance, try_debit, credit, update_stats
-from ..utils import validate_bet
+from ..utils import validate_bet, fmt
 
 
 def setup(client):
     """Setup coinflip command."""
 
     @client.tree.command(name="coinflip", description="Flip a coin and win double your bet if you guess right!")
-    @app_commands.describe(guess="Your guess - heads or tails", bet=f"Amount to bet ({MIN_BET}-{MAX_BET})")
+    @app_commands.describe(guess="Your guess - heads or tails", bet="How many coins to bet")
     @app_commands.choices(guess=[
         app_commands.Choice(name="Heads", value="heads"),
         app_commands.Choice(name="Tails", value="tails")
     ])
-    async def coinflip(interaction: discord.Interaction, guess: app_commands.Choice[str], bet: int):
+    async def coinflip(interaction: discord.Interaction, guess: app_commands.Choice[str], bet: app_commands.Range[int, MIN_BET, MAX_BET]):
         user_id = interaction.user.id
         guess_value = guess.value
 
@@ -52,11 +52,11 @@ def setup(client):
 
         emoji = "🟤" if outcome == "heads" else "⚪"
         if win:
-            result = f"🎉 It landed on **{outcome.capitalize()} {emoji}**!\nYou win **{bet}** coins!"
+            result = f"🎉 It landed on **{outcome.capitalize()} {emoji}**!\nYou win **{fmt(bet)}** coins!"
         else:
-            result = f"😢 It landed on **{outcome.capitalize()} {emoji}**!\nYou lost **{bet}** coins."
+            result = f"😢 It landed on **{outcome.capitalize()} {emoji}**!\nYou lost **{fmt(bet)}** coins."
 
         embed.title = "🪙 Coin Flip Result"
-        embed.description = result + f"\n\n💰 New Balance: **{new_balance}**"
+        embed.description = result + f"\n\n💰 New Balance: **{fmt(new_balance)}**"
         embed.color = discord.Color.green() if win else discord.Color.red()
         await interaction.edit_original_response(embed=embed)

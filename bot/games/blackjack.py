@@ -9,7 +9,7 @@ import logging
 
 from ..config import GAME_TIMEOUT, MIN_BET, MAX_BET
 from ..database import get_balance, try_debit, credit, update_blackjack_stats
-from ..utils import validate_bet
+from ..utils import validate_bet, fmt
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class BlackjackView(discord.ui.View):
         embed = discord.Embed(title="🃏 Blackjack", color=discord.Color.dark_green())
         embed.add_field(name="Your Hand", value=f"{format_hand(self.player)} ({hand_value(self.player)})", inline=False)
         embed.add_field(name="Dealer's Hand", value=format_hand(self.dealer, hide_second=True), inline=False)
-        embed.add_field(name="💰 Bet", value=f"{self.bet} coins", inline=False)
+        embed.add_field(name="💰 Bet", value=f"{fmt(self.bet)} coins", inline=False)
         embed.set_footer(text="Hit, Stand or Double down.")
         return embed
 
@@ -83,13 +83,13 @@ class BlackjackView(discord.ui.View):
         embed.add_field(name="Your Hand", value=f"{format_hand(self.player)} ({hand_value(self.player)})", inline=False)
         embed.add_field(name="Dealer's Hand", value=f"{format_hand(self.dealer)} ({hand_value(self.dealer)})", inline=False)
         if profit > 0:
-            result = f"You won {profit} coins"
+            result = f"You won {fmt(profit)} coins"
         elif profit == 0:
             result = "Your bet was returned"
         else:
-            result = f"You lost {-profit} coins"
+            result = f"You lost {fmt(-profit)} coins"
         embed.add_field(name="💰 Result", value=result + note, inline=False)
-        embed.add_field(name="💵 New Balance", value=f"{balance} coins", inline=False)
+        embed.add_field(name="💵 New Balance", value=f"{fmt(balance)} coins", inline=False)
         return embed
 
     # ---------- game logic ----------
@@ -181,8 +181,8 @@ def setup(client):
     """Setup blackjack command."""
 
     @client.tree.command(name="blackjack", description="Play a game of Blackjack with a bet")
-    @app_commands.describe(bet=f"Amount to bet ({MIN_BET}-{MAX_BET})")
-    async def blackjack(interaction: discord.Interaction, bet: int):
+    @app_commands.describe(bet="How many coins to bet")
+    async def blackjack(interaction: discord.Interaction, bet: app_commands.Range[int, MIN_BET, MAX_BET]):
         user_id = interaction.user.id
         is_valid, error_msg = validate_bet(bet, get_balance(user_id))
         if not is_valid or not try_debit(user_id, bet):

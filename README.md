@@ -155,6 +155,15 @@ from bot.games import slots, blackjack, coinflip, my_game
 my_game.setup(self)
 ```
 
+## Running Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+The tests use a temporary database and fake Discord interactions — they never touch `bot_data.db` and never connect to Discord. They cover the slot payouts and expected return, blackjack rules, balance atomicity, the daily reward, stats, the leaderboard, and the update announcement.
+
 ## Tech Stack
 
 - **discord.py** - Discord API wrapper
@@ -164,10 +173,11 @@ my_game.setup(self)
 ## Database Schema
 
 The bot uses SQLite with these tables:
-- `currency` - User balances and daily claim tracking
+- `currency` - User balances, daily claim tracking and cached display names (for the leaderboard)
 - `stats` - Slots and coinflip statistics
 - `blackjack_stats` - Blackjack-specific statistics
 - `symbol_counts` - Per-user slot symbol counts (for "most common symbol")
+- `announcements_shown` - Which servers have already seen the current update announcement
 
 ## Contributing
 

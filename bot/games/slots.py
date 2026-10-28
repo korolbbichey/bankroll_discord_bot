@@ -10,11 +10,12 @@ import logging
 
 from ..config import SLOT_SYMBOLS, SYMBOL_WEIGHTS, SLOT_PAYOUTS, MIN_BET, MAX_BET, GAME_TIMEOUT
 from ..database import get_balance, try_debit, credit, update_stats
-from ..utils import validate_bet
+from ..utils import validate_bet, fmt
 
 logger = logging.getLogger(__name__)
 
 _WEIGHTS = [SYMBOL_WEIGHTS[s] for s in SLOT_SYMBOLS]
+SPIN_COLOR = discord.Color.blurple()
 
 
 def calculate_winnings(grid: list, bet: int) -> tuple[int, int]:
@@ -43,7 +44,7 @@ class SlotView(discord.ui.View):
         self.user_id = user_id
         self.bet = bet
         self.spinning = False
-        self.last_result = ""
+        self.result: discord.Embed | None = None  # embed of the last finished spin
         self.last_interaction: discord.Interaction | None = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -59,21 +60,25 @@ class SlotView(discord.ui.View):
         for item in self.children:
             item.disabled = disabled
 
-    def render(self) -> str:
-        return f"{self.last_result}\n🎲 Current Bet: **{self.bet}**"
+    def render(self, footer: str = "Spin again, change your bet or stop.") -> discord.Embed:
+        """The last result with the current bet (which may have been changed since)."""
+        embed = self.result.copy()
+        embed.set_field_at(0, name="🎲 Next bet", value=fmt(self.bet), inline=True)
+        embed.set_footer(text=footer)
+        return embed
 
     async def on_timeout(self):
         self.set_disabled(True)
-        if self.last_interaction:
+        if self.last_interaction and self.result:
             try:
-                await self.last_interaction.edit_original_response(content=self.render() + "\n⌛ Session ended.", view=self)
+                await self.last_interaction.edit_original_response(embed=self.render("⌛ Session ended."), view=self)
             except discord.HTTPException:
                 pass
 
     async def change_bet(self, interaction: discord.Interaction, new_bet: int):
         self.bet = max(MIN_BET, min(MAX_BET, new_bet))
         self.last_interaction = interaction
-        await interaction.response.edit_message(content=self.render(), view=self)
+        await interaction.response.edit_message(embed=self.render(), view=self)
 
     @discord.ui.button(label="Bet ½", style=discord.ButtonStyle.secondary)
     async def halve_bet(self, interaction: discord.Interaction, _):
@@ -92,18 +97,18 @@ class SlotView(discord.ui.View):
     async def stop_game(self, interaction: discord.Interaction, _):
         self.stop()
         self.set_disabled(True)
-        await interaction.response.edit_message(content=self.render() + "\n🎰 Game ended.", view=self)
+        await interaction.response.edit_message(embed=self.render("🎰 Game ended. Thanks for playing!"), view=self)
 
     async def spin(self, interaction: discord.Interaction):
         """Run one spin. The interaction must already be responded to (or deferred)."""
         self.last_interaction = interaction
         if not try_debit(self.user_id, self.bet):
-            error = f"❌ You don't have enough coins for a {self.bet} bet (balance: {get_balance(self.user_id)})."
-            if self.last_result:
+            error = f"❌ You don't have enough coins for a {fmt(self.bet)} bet (balance: {fmt(get_balance(self.user_id))})."
+            if self.result:
                 await interaction.followup.send(error, ephemeral=True)
             else:
                 self.stop()
-                await interaction.edit_original_response(content=error, view=None)
+                await interaction.edit_original_response(content=error, embed=None, view=None)
             return
 
         self.spinning = True
@@ -117,9 +122,9 @@ class SlotView(discord.ui.View):
                     [final_symbols[col][row] if col < step else random.choice(SLOT_SYMBOLS) for col in range(3)]
                     for row in range(3)
                 ]
-                await interaction.edit_original_response(
-                    content=f"🎰 Spinning...\n{format_grid(grid)}\n🎲 Current Bet: **{self.bet}**", view=self
-                )
+                spinning = discord.Embed(title="🎰 Spinning...", description=format_grid(grid), color=SPIN_COLOR)
+                spinning.set_footer(text=f"Bet: {fmt(self.bet)}")
+                await interaction.edit_original_response(content=None, embed=spinning, view=self)
                 await asyncio.sleep(0.4)
         except Exception:
             # Nothing has been paid out yet, so refunding the bet is safe.
@@ -138,23 +143,27 @@ class SlotView(discord.ui.View):
 
         line_text = f"{lines} winning line{'s' if lines > 1 else ''}"
         if payout > self.bet:
-            outcome = f"🎉 {line_text}! Payout **{payout}** (+{payout - self.bet})"
+            title, color = f"🎉 You won {fmt(payout - self.bet)}!", discord.Color.green()
         elif payout == self.bet:
-            outcome = f"🔁 {line_text} — your bet of **{self.bet}** is returned."
+            title, color = "🔁 Bet returned", discord.Color.gold()
         else:
-            outcome = f"😢 No luck. You lost **{self.bet}**."
-        self.last_result = f"🎰 Final Result!\n{format_grid(final_grid)}\n{outcome}\n💰 Balance: **{new_balance}**"
+            title, color = f"😢 You lost {fmt(self.bet)}", discord.Color.red()
+
+        self.result = discord.Embed(title=title, description=format_grid(final_grid), color=color)
+        self.result.add_field(name="🎲 Next bet", value=fmt(self.bet), inline=True)  # updated by render()
+        self.result.add_field(name="🏆 Payout", value=f"{fmt(payout)} ({line_text})" if payout else "0", inline=True)
+        self.result.add_field(name="💰 Balance", value=fmt(new_balance), inline=True)
 
         self.set_disabled(False)
-        await interaction.edit_original_response(content=self.render(), view=self)
+        await interaction.edit_original_response(embed=self.render(), view=self)
 
 
 def setup(client):
     """Setup slots command."""
 
     @client.tree.command(name="slots", description="Play a slot machine with a bet")
-    @app_commands.describe(bet=f"Amount to bet ({MIN_BET}-{MAX_BET})")
-    async def slots(interaction: discord.Interaction, bet: int):
+    @app_commands.describe(bet="How many coins to bet")
+    async def slots(interaction: discord.Interaction, bet: app_commands.Range[int, MIN_BET, MAX_BET]):
         user_id = interaction.user.id
         is_valid, error_msg = validate_bet(bet, get_balance(user_id))
         if not is_valid:
