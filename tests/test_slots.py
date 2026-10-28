@@ -6,7 +6,7 @@ import pytest
 
 from bot.config import SLOT_SYMBOLS, SYMBOL_WEIGHTS, SLOT_PAYOUTS, STARTING_BALANCE, MIN_BET, MAX_BET
 from bot.games import slots
-from bot.games.slots import calculate_winnings, SlotView
+from bot.games.slots import calculate_winnings, find_winning_lines, SlotView
 
 from conftest import make_interaction, sent_embed
 
@@ -54,6 +54,19 @@ def test_calculate_winnings_sums_every_line():
     assert calculate_winnings([[DIAMOND] * 3, [LEMON, CHERRY, MELON], [BELL, STAR, LEMON]], 2) == (100, 1)
 
 
+def test_find_winning_lines_names_each_line():
+    """The grid from a player report: five cherries, but only the middle row is a full line."""
+    grid = [[LEMON, LEMON, BELL], [CHERRY, CHERRY, CHERRY], [CHERRY, CHERRY, MELON]]
+    assert find_winning_lines(grid) == [("Row 2", CHERRY * 3, 2)]
+    assert calculate_winnings(grid, 50) == (100, 1)
+
+    grid = [[STAR, LEMON, STAR], [CHERRY, STAR, MELON], [STAR, BELL, STAR]]
+    assert [name for name, _, _ in find_winning_lines(grid)] == ["Diagonal ↘", "Diagonal ↙"]
+
+    grid = [[BELL, LEMON, CHERRY], [BELL, MELON, STAR], [BELL, DIAMOND, LEMON]]
+    assert find_winning_lines(grid) == [("Column 1", BELL * 3, 10)]
+
+
 def run_spin(monkeypatch, columns, bet=10, user_id=1):
     async def go():
         force_columns(monkeypatch, columns)
@@ -69,7 +82,8 @@ def test_winning_spin_pays_and_shows_green_embed(db, monkeypatch):
     assert db.get_balance(1) == STARTING_BALANCE - 10 + 500
     embed = sent_embed(interaction.edit_original_response)
     assert embed.color == discord.Color.green() and "490" in embed.title
-    assert [f.value for f in embed.fields] == ["10", "500 (1 winning line)", "590"]
+    assert [f.value for f in embed.fields] == ["10", "500", "590", f"Row 1 — {DIAMOND * 3} **50x**"]
+    assert embed.fields[3].name == "✨ Winning lines"
     assert not view.spinning and not any(item.disabled for item in view.children)
 
 
@@ -85,7 +99,9 @@ def test_lemon_line_returns_bet(db, monkeypatch):
 def test_losing_spin(db, monkeypatch):
     _, interaction = run_spin(monkeypatch, [[LEMON, CHERRY, BELL], [STAR, MELON, DIAMOND], [CHERRY, BELL, LEMON]])
     assert db.get_balance(1) == STARTING_BALANCE - 10
-    assert sent_embed(interaction.edit_original_response).color == discord.Color.red()
+    embed = sent_embed(interaction.edit_original_response)
+    assert embed.color == discord.Color.red()
+    assert len(embed.fields) == 3, "no 'Winning lines' field without a win"
 
 
 def test_spin_without_enough_coins_takes_nothing(db, monkeypatch):

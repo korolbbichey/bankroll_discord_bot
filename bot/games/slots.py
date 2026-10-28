@@ -18,19 +18,27 @@ _WEIGHTS = [SYMBOL_WEIGHTS[s] for s in SLOT_SYMBOLS]
 SPIN_COLOR = discord.Color.blurple()
 
 
+LINE_NAMES = ["Row 1", "Row 2", "Row 3", "Column 1", "Column 2", "Column 3", "Diagonal ↘", "Diagonal ↙"]
+
+
+def find_winning_lines(grid: list) -> list[tuple[str, str, int]]:
+    """All winning lines in a 3x3 grid as (line name, symbols, multiplier)."""
+    lines = grid + [list(col) for col in zip(*grid)] + [[grid[i][i] for i in range(3)], [grid[i][2-i] for i in range(3)]]
+    winning = []
+    for name, line in zip(LINE_NAMES, lines):
+        combo = "".join(line)
+        if combo in SLOT_PAYOUTS:
+            winning.append((name, combo, SLOT_PAYOUTS[combo]))
+    return winning
+
+
 def calculate_winnings(grid: list, bet: int) -> tuple[int, int]:
     """
     Calculate the payout from a slot grid.
     Every winning line (rows, columns, diagonals) pays. Returns (payout, winning_lines).
     """
-    lines = grid + [list(col) for col in zip(*grid)] + [[grid[i][i] for i in range(3)], [grid[i][2-i] for i in range(3)]]
-    payout, winning_lines = 0, 0
-    for line in lines:
-        multiplier = SLOT_PAYOUTS.get("".join(line))
-        if multiplier:
-            payout += multiplier * bet
-            winning_lines += 1
-    return payout, winning_lines
+    winning = find_winning_lines(grid)
+    return sum(multiplier for _, _, multiplier in winning) * bet, len(winning)
 
 
 def format_grid(grid: list) -> str:
@@ -135,13 +143,13 @@ class SlotView(discord.ui.View):
             return
 
         try:
-            payout, lines = calculate_winnings(final_grid, self.bet)
+            winning_lines = find_winning_lines(final_grid)
+            payout = sum(multiplier for _, _, multiplier in winning_lines) * self.bet
             new_balance = credit(self.user_id, payout) if payout else get_balance(self.user_id)
             update_stats(self.user_id, payout, self.bet, final_grid)
         finally:
             self.spinning = False
 
-        line_text = f"{lines} winning line{'s' if lines > 1 else ''}"
         if payout > self.bet:
             title, color = f"🎉 You won {fmt(payout - self.bet)}!", discord.Color.green()
         elif payout == self.bet:
@@ -151,8 +159,12 @@ class SlotView(discord.ui.View):
 
         self.result = discord.Embed(title=title, description=format_grid(final_grid), color=color)
         self.result.add_field(name="🎲 Next bet", value=fmt(self.bet), inline=True)  # updated by render()
-        self.result.add_field(name="🏆 Payout", value=f"{fmt(payout)} ({line_text})" if payout else "0", inline=True)
+        self.result.add_field(name="🏆 Payout", value=fmt(payout), inline=True)
         self.result.add_field(name="💰 Balance", value=fmt(new_balance), inline=True)
+        if winning_lines:
+            self.result.add_field(name="✨ Winning lines", value="\n".join(
+                f"{name} — {combo} **{multiplier}x**" for name, combo, multiplier in winning_lines
+            ), inline=False)
 
         self.set_disabled(False)
         await interaction.edit_original_response(embed=self.render(), view=self)
