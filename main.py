@@ -12,8 +12,8 @@ from discord.ext import commands
 from dotenv import load_dotenv
 
 # Import bot modules
-from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS
-from bot.database import init_db
+from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT, ANNOUNCEMENT_ID
+from bot.database import init_db, mark_announcement_shown
 from bot.commands import economy, admin, general
 from bot.games import slots, blackjack, coinflip
 
@@ -66,6 +66,18 @@ class BankRollBot(commands.Bot):
 
     async def on_ready(self):
         logger.info("Logged on as %s (in %d servers)", self.user, len(self.guilds))
+
+    async def on_app_command_completion(self, interaction: discord.Interaction, command):
+        """Post the current update announcement once per server, publicly, in the channel the command was used in.
+        Outside servers (DMs) it is shown once per user, privately."""
+        if not ANNOUNCEMENT or not interaction.response.is_done():
+            return
+        in_server = interaction.guild_id is not None
+        try:
+            if mark_announcement_shown(interaction.guild_id if in_server else interaction.user.id, ANNOUNCEMENT_ID):
+                await interaction.followup.send(ANNOUNCEMENT, ephemeral=not in_server)
+        except Exception:
+            logger.exception("Failed to send announcement")
 
     async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CheckFailure):

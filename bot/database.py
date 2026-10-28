@@ -67,6 +67,12 @@ def init_db():
             count INTEGER DEFAULT 0,
             PRIMARY KEY (user_id, symbol)
         )''')
+        # target_id is a server ID (or a user ID for commands used outside a server)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS announcements_shown (
+            target_id INTEGER PRIMARY KEY,
+            announcement_id TEXT NOT NULL
+        )''')
+
         # The clown symbol was removed from the slots.
         cursor.execute("DELETE FROM symbol_counts WHERE symbol = ?", ("\U0001f921",))
 
@@ -188,6 +194,18 @@ def claim_daily_reward(user_id) -> tuple[bool, int, str]:
     if is_new:
         return True, balance, f"Welcome! You've received 💰 {STARTING_BALANCE} starting balance + 💰 {DAILY_REWARD} daily reward!"
     return True, balance, f"You've claimed your daily reward of 💰 {DAILY_REWARD}!"
+
+
+def mark_announcement_shown(target_id, announcement_id: str) -> bool:
+    """Record that this announcement was shown to a server (or user). Returns True only the first time."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO announcements_shown (target_id, announcement_id) VALUES (?, ?)
+            ON CONFLICT(target_id) DO UPDATE SET announcement_id = excluded.announcement_id
+            WHERE announcement_id != excluded.announcement_id
+        """, (target_id, announcement_id))
+        return cursor.rowcount == 1
 
 
 # ============== Stats Operations ==============
