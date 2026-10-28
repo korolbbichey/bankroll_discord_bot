@@ -9,6 +9,11 @@ from ..utils import fmt
 
 TOS_URL = "https://gist.github.com/korolbbichey/ec9757512835365e37c3c8823d096ccb"
 
+PLAY_ANYWHERE = (
+    "Add Bankroll to your profile and use it on any server or in DMs — "
+    "open the bot's profile → **Add App** → **Add to My Apps**."
+)
+
 
 def build_help_embed() -> discord.Embed:
     embed = discord.Embed(
@@ -24,7 +29,7 @@ def build_help_embed() -> discord.Embed:
     ), inline=False)
     embed.add_field(name="💰 Economy", value=(
         "`/balance [user]` — check a balance\n"
-        f"`/daily_reward` — 💰 {fmt(DAILY_STREAK_REWARDS[0])}–{fmt(DAILY_STREAK_REWARDS[-1])} every day, more with a 🔥 streak (resets 00:00 UTC)\n"
+        f"`/daily_reward` — 💰 {fmt(DAILY_STREAK_REWARDS[0])}–{fmt(DAILY_STREAK_REWARDS[-1])} daily, grows with a 🔥 streak\n"
         "`/pay <user> <amount>` — send coins to a friend\n"
         "`/leaderboard` — richest players and your position\n"
         "`/profile [user]` — game statistics"
@@ -32,6 +37,7 @@ def build_help_embed() -> discord.Embed:
     embed.add_field(name="🎰 Slot payouts (per line)", value="\n".join(
         f"{combo} — **{multiplier}x**" for combo, multiplier in SLOT_PAYOUTS.items()
     ), inline=False)
+    embed.add_field(name="🌍 Play anywhere", value=PLAY_ANYWHERE, inline=False)
     embed.add_field(name="📜 Terms of Service", value=f"[Read here]({TOS_URL})", inline=False)
     return embed
 
@@ -54,10 +60,7 @@ def build_announcement_embed() -> discord.Embed:
         "`/pay` — send coins to friends\n"
         f"`/daily_reward` — 🔥 daily streaks: claim every day for up to **{fmt(DAILY_STREAK_REWARDS[-1])}** coins"
     ), inline=False)
-    embed.add_field(name="🌍 Play anywhere", value=(
-        "Add Bankroll to your profile and use it on any server or in DMs — "
-        "open the bot's profile → **Add App** → **Add to My Apps**."
-    ), inline=False)
+    embed.add_field(name="🌍 Play anywhere", value=PLAY_ANYWHERE, inline=False)
     embed.add_field(name="✨ Fresh look", value="Redesigned `/leaderboard` and `/profile`, and a fairer, more stable bot.", inline=False)
     embed.set_footer(text="Start with /help • Have fun!")
     return embed

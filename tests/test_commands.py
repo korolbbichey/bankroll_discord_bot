@@ -202,6 +202,8 @@ def test_help_embed_lists_payouts(bot):
     embed = asyncio.run(go())
     assert "Bets: 1–10,000 coins" in embed.fields[0].value
     assert "🍋🍋🍋 — **1x**" in embed.fields[2].value
+    assert [f.name for f in embed.fields][-2:] == ["🌍 Play anywhere", "📜 Terms of Service"]
+    assert "Add to My Apps" in embed.fields[-2].value
 
 
 def test_announcement_embed():
