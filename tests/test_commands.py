@@ -113,7 +113,7 @@ def test_announcement_once_per_server(bot):
 
 
 def test_names_are_remembered_after_commands(bot, db):
-    db.get_balance(1)
+    db.credit(1, 0)
     user = make_user(1, global_name="First")
 
     async def go():

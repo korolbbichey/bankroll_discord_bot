@@ -90,12 +90,15 @@ def _ensure_account(cursor, user_id):
 # ============== Currency Operations ==============
 
 def get_balance(user_id) -> int:
-    """Get user balance, creating account if needed."""
+    """
+    Get a user's balance. Read-only: users without an account have the starting balance,
+    but an account is only created once their coins actually change (game, daily reward, transfer).
+    """
     with get_connection() as conn:
         cursor = conn.cursor()
-        _ensure_account(cursor, user_id)
         cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,))
-        return cursor.fetchone()[0]
+        row = cursor.fetchone()
+        return row[0] if row else STARTING_BALANCE
 
 
 def try_debit(user_id, amount: int) -> bool:
@@ -141,30 +144,31 @@ def set_balance(user_id, amount: int):
 
 
 def get_rank(user_id) -> int | None:
-    """1-based leaderboard position, or None if the user has no account."""
+    """1-based leaderboard position (same ordering as get_leaderboard), or None if the user has no account."""
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         if row is None:
             return None
-        cursor.execute("SELECT COUNT(*) + 1 FROM currency WHERE balance > ?", (row[0],))
+        cursor.execute("SELECT COUNT(*) + 1 FROM currency WHERE balance > ? OR (balance = ? AND user_id < ?)",
+                       (row[0], row[0], user_id))
         return cursor.fetchone()[0]
 
 
 def get_player_count() -> int:
-    """Number of users who have played at least one game."""
+    """Number of players on the leaderboard (everyone with an account), so it matches get_rank."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM (SELECT user_id FROM stats UNION SELECT user_id FROM blackjack_stats)")
+        cursor.execute("SELECT COUNT(*) FROM currency")
         return cursor.fetchone()[0]
 
 
 def get_leaderboard(limit: int = 5) -> list[tuple[int, int, str | None]]:
-    """Get top users by balance as (user_id, balance, username)."""
+    """Get top users by balance as (user_id, balance, username). Ties keep a stable order."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT user_id, balance, username FROM currency ORDER BY balance DESC LIMIT ?",
+        cursor.execute("SELECT user_id, balance, username FROM currency ORDER BY balance DESC, user_id LIMIT ?",
                        (limit,))
         return cursor.fetchall()
 

@@ -3,8 +3,16 @@ import sqlite3
 from bot.config import STARTING_BALANCE, DAILY_REWARD
 
 
-def test_new_account_gets_starting_balance(db):
+def test_new_user_has_starting_balance(db):
     assert db.get_balance(1) == STARTING_BALANCE
+
+
+def test_checking_a_balance_does_not_create_an_account(db):
+    db.get_balance(1)
+    assert db.get_rank(1) is None
+    assert db.get_player_count() == 0
+    db.claim_daily_reward(1)
+    assert db.get_player_count() == 1
 
 
 def test_debit_and_credit(db):
@@ -65,12 +73,17 @@ def test_rank_and_player_count(db):
     db.set_balance(3, 200)
     assert [db.get_rank(u) for u in (2, 3, 1)] == [1, 2, 3]
     assert db.get_rank(999) is None
+    assert db.get_player_count() == 3
 
-    assert db.get_player_count() == 0, "accounts without games are not players"
-    db.update_stats(1, 0, 10)
-    db.update_blackjack_stats(1, 10, True)
-    db.update_blackjack_stats(2, 10, True)
-    assert db.get_player_count() == 2
+
+def test_rank_matches_leaderboard_order_and_never_exceeds_total(db):
+    """Regression: the footer showed 'Your position: #19' next to 'Total players: 15'."""
+    for user_id, balance in [(5, 150), (3, 150), (9, 663), (4, 150), (7, 100)]:
+        db.set_balance(user_id, balance)
+    order = [row[0] for row in db.get_leaderboard(10)]
+    assert order == [9, 3, 4, 5, 7], "ties are ordered by user id, consistently between calls"
+    assert [db.get_rank(user_id) for user_id in order] == [1, 2, 3, 4, 5]
+    assert max(db.get_rank(u) for u in order) <= db.get_player_count()
 
 
 def test_leaderboard_includes_saved_usernames(db):
@@ -82,7 +95,7 @@ def test_leaderboard_includes_saved_usernames(db):
 
 def test_save_username_needs_account_and_only_writes_changes(db):
     assert not db.save_username(42, "Ghost"), "no account -> nothing stored"
-    db.get_balance(42)
+    db.credit(42, 0)
     assert db.save_username(42, "Ghost")
     assert db.save_username(42, "Ghost")
     db.save_username(42, "Renamed")
