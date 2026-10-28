@@ -7,9 +7,9 @@ from discord import app_commands
 import random
 import logging
 
-from ..config import GAME_TIMEOUT, MIN_BET, MAX_BET
+from ..config import GAME_TIMEOUT
 from ..database import get_balance, try_debit, credit, update_blackjack_stats
-from ..utils import validate_bet, fmt
+from ..utils import validate_bet, fmt, Bet
 
 logger = logging.getLogger(__name__)
 
@@ -181,8 +181,8 @@ def setup(client):
     """Setup blackjack command."""
 
     @client.tree.command(name="blackjack", description="Play a game of Blackjack with a bet")
-    @app_commands.describe(bet="How many coins to bet")
-    async def blackjack(interaction: discord.Interaction, bet: app_commands.Range[int, MIN_BET, MAX_BET]):
+    @app_commands.describe(bet="Coins to bet: a number, all or half")
+    async def blackjack(interaction: discord.Interaction, bet: Bet):
         user_id = interaction.user.id
         is_valid, error_msg = validate_bet(bet, get_balance(user_id))
         if not is_valid or not try_debit(user_id, bet):

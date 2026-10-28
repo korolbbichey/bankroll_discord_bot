@@ -7,6 +7,8 @@ import pytest
 import main
 from bot.config import STARTING_BALANCE, ANNOUNCEMENT_ID
 
+from bot.utils import BetTransformer
+
 from conftest import make_interaction, make_user, sent_embed
 
 
@@ -53,10 +55,45 @@ def test_admin_commands_stay_server_only(monkeypatch):
     assert payload["integration_types"] == [0] and payload["contexts"] == [0]
 
 
-def test_bet_options_have_discord_side_limits(bot):
+def test_bet_option_accepts_text_with_suggestions(bot):
     for name in ("slots", "blackjack", "coinflip"):
         bet = next(p for p in command(bot, name).parameters if p.name == "bet")
-        assert (bet.min_value, bet.max_value) == (main.slots.MIN_BET, main.slots.MAX_BET)
+        assert bet.type == discord.AppCommandOptionType.string and bet.autocomplete, name
+
+
+def test_bet_all_and_half(bot, db):
+    """'all' / 'half' are resolved against the player's balance before the game starts."""
+    db.set_balance(1, 300)
+
+    async def go():
+        bet = BetTransformer()
+        assert await bet.transform(make_interaction(1), "half") == 150
+        assert await bet.transform(make_interaction(1), "all") == 300
+        assert await bet.transform(make_interaction(1), "1.5k") == 1500
+    asyncio.run(go())
+
+
+def test_bet_suggestions_show_amounts(bot, db):
+    db.set_balance(1, 25_000)
+
+    async def suggest(text):
+        return [(c.name, c.value) for c in await BetTransformer().autocomplete(make_interaction(1), text)]
+
+    async def go():
+        assert await suggest("") == [("all — 10,000 coins", "all"), ("half — 10,000 coins", "half")]
+        assert await suggest("h") == [("half — 10,000 coins", "half")]
+        assert await suggest("2k") == [("2,000 coins", "2k")]
+        assert await suggest("lots") == []
+    asyncio.run(go())
+
+
+def test_invalid_bet_gets_a_clear_message(bot):
+    async def go():
+        interaction = make_interaction(1, done=False)
+        await bot.on_app_command_error(interaction, main.InvalidBet("❌ Bet must be a number, `all` or `half`."))
+        args, kwargs = interaction.response.send_message.call_args
+        assert args[0] == "❌ Bet must be a number, `all` or `half`." and kwargs["ephemeral"] is True
+    asyncio.run(go())
 
 
 def test_pay(bot, db):
@@ -200,7 +237,7 @@ def test_help_embed_lists_payouts(bot):
         await command(bot, "help").callback(interaction)
         return sent_embed(interaction.response.send_message)
     embed = asyncio.run(go())
-    assert "Bets: 1–10,000 coins" in embed.fields[0].value
+    assert "1–10,000 coins, or `all` / `half`" in embed.fields[0].value
     assert "🍋🍋🍋 — **1x**" in embed.fields[2].value
     assert [f.name for f in embed.fields][-2:] == ["🌍 Play anywhere", "📜 Terms of Service"]
     assert "Add to My Apps" in embed.fields[-2].value

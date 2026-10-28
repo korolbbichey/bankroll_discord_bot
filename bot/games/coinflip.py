@@ -7,21 +7,20 @@ from discord import app_commands
 import random
 import asyncio
 
-from ..config import MIN_BET, MAX_BET
 from ..database import get_balance, try_debit, credit, update_stats
-from ..utils import validate_bet, fmt
+from ..utils import validate_bet, fmt, Bet
 
 
 def setup(client):
     """Setup coinflip command."""
 
     @client.tree.command(name="coinflip", description="Flip a coin and win double your bet if you guess right!")
-    @app_commands.describe(guess="Your guess - heads or tails", bet="How many coins to bet")
+    @app_commands.describe(guess="Your guess - heads or tails", bet="Coins to bet: a number, all or half")
     @app_commands.choices(guess=[
         app_commands.Choice(name="Heads", value="heads"),
         app_commands.Choice(name="Tails", value="tails")
     ])
-    async def coinflip(interaction: discord.Interaction, guess: app_commands.Choice[str], bet: app_commands.Range[int, MIN_BET, MAX_BET]):
+    async def coinflip(interaction: discord.Interaction, guess: app_commands.Choice[str], bet: Bet):
         user_id = interaction.user.id
         guess_value = guess.value
 

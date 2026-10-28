@@ -25,7 +25,7 @@ def build_help_embed() -> discord.Embed:
         "`/slots <bet>` — 3x3 slot machine, every line pays\n"
         "`/blackjack <bet>` — Hit, Stand or Double down\n"
         "`/coinflip <guess> <bet>` — guess right to double your bet\n"
-        f"Bets: {fmt(MIN_BET)}–{fmt(MAX_BET)} coins"
+        f"`<bet>`: {fmt(MIN_BET)}–{fmt(MAX_BET)} coins, or `all` / `half` of your balance"
     ), inline=False)
     embed.add_field(name="💰 Economy", value=(
         "`/balance [user]` — check a balance\n"

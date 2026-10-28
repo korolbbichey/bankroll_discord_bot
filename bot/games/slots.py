@@ -10,7 +10,7 @@ import logging
 
 from ..config import SLOT_SYMBOLS, SYMBOL_WEIGHTS, SLOT_PAYOUTS, MIN_BET, MAX_BET, GAME_TIMEOUT
 from ..database import get_balance, try_debit, credit, update_stats
-from ..utils import validate_bet, fmt
+from ..utils import validate_bet, fmt, Bet
 
 logger = logging.getLogger(__name__)
 
@@ -174,8 +174,8 @@ def setup(client):
     """Setup slots command."""
 
     @client.tree.command(name="slots", description="Play a slot machine with a bet")
-    @app_commands.describe(bet="How many coins to bet")
-    async def slots(interaction: discord.Interaction, bet: app_commands.Range[int, MIN_BET, MAX_BET]):
+    @app_commands.describe(bet="Coins to bet: a number, all or half")
+    async def slots(interaction: discord.Interaction, bet: Bet):
         user_id = interaction.user.id
         is_valid, error_msg = validate_bet(bet, get_balance(user_id))
         if not is_valid:

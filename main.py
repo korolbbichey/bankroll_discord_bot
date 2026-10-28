@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 # Import bot modules
 from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
 from bot.database import init_db, mark_announcement_shown, save_username
-from bot.utils import display_name
+from bot.utils import display_name, InvalidBet
 from bot.commands import economy, admin, general
 from bot.games import slots, blackjack, coinflip
 
@@ -104,7 +104,9 @@ class BankRollBot(commands.Bot):
             logger.exception("Failed to send announcement")
 
     async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
-        if isinstance(error, app_commands.CheckFailure):
+        if isinstance(error, InvalidBet):
+            message = str(error)
+        elif isinstance(error, app_commands.CheckFailure):
             message = "❌ You don't have permission to use this command."
         else:
             logger.error("Error in /%s", interaction.command.qualified_name if interaction.command else "?", exc_info=error)

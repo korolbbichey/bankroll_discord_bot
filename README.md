@@ -9,6 +9,8 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 - **Blackjack** (`/blackjack <bet>`) - Classic 21 with Hit/Stand/Double actions, natural blackjack pays 3:2
 - **Coin Flip** (`/coinflip <guess> <bet>`) - Simple heads/tails game with 2x payout
 
+`<bet>` can be a number (`500`, `1,000`, `2.5k`), `all` or `half` of your balance (capped at the maximum bet). Discord suggests `all` / `half` with the actual amounts while typing.
+
 ### Economy System
 - **Balance** (`/balance [@user]`) - Check your own or another player's coins
 - **Daily Reward** (`/daily_reward`) - Claim coins every day; consecutive days build a 🔥 streak (50 → 55 → 60 → 70 → 80 → 90 → 100 coins, configurable via `DAILY_STREAK_REWARDS`). Missing a day resets the streak
