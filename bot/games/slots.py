@@ -6,17 +6,20 @@ import discord
 from discord import app_commands
 import random
 import asyncio
+import io
 import logging
 
 from ..config import SLOT_SYMBOLS, SYMBOL_WEIGHTS, SLOT_PAYOUTS, MIN_BET, MAX_BET, GAME_TIMEOUT
 from ..database import get_balance, try_debit, credit, update_stats
-from ..utils import validate_bet, fmt, Bet
+from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS
 from ..progression import track_game, send_notice
+from ..slots_gif import animation_seconds, render_spin_gif
 
 logger = logging.getLogger(__name__)
 
 _WEIGHTS = [SYMBOL_WEIGHTS[s] for s in SLOT_SYMBOLS]
 SPIN_COLOR = discord.Color.blurple()
+GIF_NAME = "spin.gif"
 
 
 LINE_NAMES = ["Row 1", "Row 2", "Row 3", "Column 1", "Column 2", "Column 3", "Diagonal ↘", "Diagonal ↙"]
@@ -42,9 +45,14 @@ def calculate_winnings(grid: list, bet: int) -> tuple[int, int]:
     return sum(multiplier for _, _, multiplier in winning) * bet, len(winning)
 
 
-def format_grid(grid: list) -> str:
-    """Format a slot grid for display."""
-    return "```\n" + "\n".join([" | ".join(row) for row in grid]) + "\n```"
+def line_cells(name: str) -> list[tuple[int, int]]:
+    """The (row, column) cells of a named winning line."""
+    index = LINE_NAMES.index(name)
+    if index < 3:
+        return [(index, col) for col in range(3)]
+    if index < 6:
+        return [(row, index - 3) for row in range(3)]
+    return [(i, i if index == 6 else 2 - i) for i in range(3)]
 
 
 class SlotView(discord.ui.View):
@@ -124,34 +132,43 @@ class SlotView(discord.ui.View):
         self.set_disabled(True)
         final_symbols = [random.choices(SLOT_SYMBOLS, weights=_WEIGHTS, k=3) for _ in range(3)]  # per column
         final_grid = [[final_symbols[col][row] for col in range(3)] for row in range(3)]
+        winning_lines = find_winning_lines(final_grid)
+        payout = sum(multiplier for _, _, multiplier in winning_lines) * self.bet
 
         try:
-            for step in range(3):
-                grid = [
-                    [final_symbols[col][row] if col < step else random.choice(SLOT_SYMBOLS) for col in range(3)]
-                    for row in range(3)
-                ]
-                spinning = discord.Embed(title="🎰 Spinning...", description=format_grid(grid), color=SPIN_COLOR)
-                spinning.set_footer(text=f"Bet: {fmt(self.bet)}")
-                await interaction.edit_original_response(content=None, embed=spinning, view=self)
-                await asyncio.sleep(0.4)
+            cells = {cell for name, _, _ in winning_lines for cell in line_cells(name)}
+            async with DRAW_SLOTS:
+                gif = await asyncio.to_thread(render_spin_gif, final_grid, cells, self.bet, payout)
+            spinning = discord.Embed(title="🎰 Spinning...", color=SPIN_COLOR)
+            spinning.set_image(url=f"attachment://{GIF_NAME}")
+            spinning.set_footer(text=f"Bet: {fmt(self.bet)}")
+            await interaction.edit_original_response(
+                content=None, embed=spinning, view=self,
+                attachments=[discord.File(io.BytesIO(gif), filename=GIF_NAME)],
+            )
         except Exception:
             # Nothing has been paid out yet, so refunding the bet is safe.
-            logger.exception("Slots animation failed, refunding bet")
+            logger.exception("Slots spin failed, refunding bet")
             credit(self.user_id, self.bet)
             self.spinning = False
             self.stop()
+            try:
+                await interaction.followup.send("❌ Something went wrong. Your bet was refunded.", ephemeral=True)
+            except discord.HTTPException:
+                pass
             return
 
+        # The player can already see the spin, so pay out now and show the numbers when the reels have stopped.
         try:
-            winning_lines = find_winning_lines(final_grid)
-            payout = sum(multiplier for _, _, multiplier in winning_lines) * self.bet
             new_balance = credit(self.user_id, payout) if payout else get_balance(self.user_id)
             update_stats(self.user_id, payout, self.bet, final_grid)
-        finally:
+        except Exception:
             self.spinning = False
+            raise
         progress = track_game(self.user_id, "slots", self.bet, payout,
                               winning_combos=[combo for _, combo, _ in winning_lines])
+        await asyncio.sleep(animation_seconds(bool(winning_lines)))
+        self.spinning = False
 
         if payout > self.bet:
             title, color = f"🎉 You won {fmt(payout - self.bet)}!", discord.Color.green()
@@ -160,7 +177,8 @@ class SlotView(discord.ui.View):
         else:
             title, color = f"😢 You lost {fmt(self.bet)}", discord.Color.red()
 
-        self.result = discord.Embed(title=title, description=format_grid(final_grid), color=color)
+        self.result = discord.Embed(title=title, color=color)
+        self.result.set_image(url=f"attachment://{GIF_NAME}")  # the GIF already in the message
         self.result.add_field(name="🎲 Next bet", value=fmt(self.bet), inline=True)  # updated by render()
         self.result.add_field(name="🏆 Payout", value=fmt(payout), inline=True)
         self.result.add_field(name="💰 Balance", value=fmt(new_balance), inline=True)

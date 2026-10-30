@@ -5,7 +5,7 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 ## Features
 
 ### Interactive Games
-- **Slots** (`/slots <bet>`) - 3x3 slot machine with animated spins, 8 paying lines, and adjustable bets (~95% return)
+- **Slots** (`/slots <bet>`) - 3x3 slot machine with spins drawn as animated GIFs (`bot/slots_gif.py`), 8 paying lines, and adjustable bets (~95% return)
 - **Blackjack** (`/blackjack <bet>`) - Classic 21 with Hit/Stand/Double actions, natural blackjack pays 3:2
 - **Coin Flip** (`/coinflip <guess> <bet>`) - Simple heads/tails game with 2x payout
 

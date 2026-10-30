@@ -2,11 +2,17 @@
 Utility functions for the BankRoll Discord Bot.
 """
 
+import asyncio
+
 import discord
 from discord import app_commands
 
 from .config import MIN_BET, MAX_BET
 from .database import get_balance
+
+
+# Drawing images briefly takes tens of MB of memory, so only a couple are drawn at once.
+DRAW_SLOTS = asyncio.Semaphore(2)
 
 
 def fmt(amount: int) -> str:

@@ -1,12 +1,15 @@
 import asyncio
+import io
 import random
 
 import discord
 import pytest
+from PIL import Image
 
 from bot.config import SLOT_SYMBOLS, SYMBOL_WEIGHTS, SLOT_PAYOUTS, STARTING_BALANCE, MIN_BET, MAX_BET
 from bot.games import slots
-from bot.games.slots import calculate_winnings, find_winning_lines, SlotView
+from bot.games.slots import calculate_winnings, find_winning_lines, line_cells, SlotView
+from bot.slots_gif import animation_seconds, render_spin_gif
 
 from conftest import make_interaction, sent_embed
 
@@ -149,3 +152,49 @@ def test_only_owner_can_press_buttons_and_not_mid_spin():
         view.spinning = False
         assert await view.interaction_check(make_interaction(1))
     asyncio.run(go())
+
+
+def test_line_cells():
+    assert line_cells("Row 2") == [(1, 0), (1, 1), (1, 2)]
+    assert line_cells("Column 3") == [(0, 2), (1, 2), (2, 2)]
+    assert line_cells("Diagonal ↘") == [(0, 0), (1, 1), (2, 2)]
+    assert line_cells("Diagonal ↙") == [(0, 2), (1, 1), (2, 0)]
+
+
+def test_spin_sends_a_gif_then_the_result(db, monkeypatch):
+    view, interaction = run_spin(monkeypatch, [[DIAMOND, LEMON, BELL], [DIAMOND, CHERRY, STAR], [DIAMOND, MELON, LEMON]])
+    first, last = interaction.edit_original_response.call_args_list
+    file = first.kwargs["attachments"][0]
+    assert file.filename == "spin.gif" and file.fp.read(6) == b"GIF89a"
+    assert first.kwargs["embed"].title == "🎰 Spinning..."
+    assert first.kwargs["embed"].image.url == "attachment://spin.gif"
+    assert all(item.disabled for item in view.children) is False, "buttons are back after the spin"
+    assert "attachments" not in last.kwargs, "the result keeps the same GIF"
+    assert last.kwargs["embed"].image.url == "attachment://spin.gif"
+
+
+def test_gif_plays_once_and_lands_on_the_grid():
+    grid = [[DIAMOND] * 3, [LEMON, CHERRY, MELON], [BELL, STAR, LEMON]]
+    gif = Image.open(io.BytesIO(render_spin_gif(grid, {(0, 0), (0, 1), (0, 2)}, 10, 500, seed=1)))
+    assert gif.format == "GIF" and gif.is_animated and "loop" not in gif.info
+    total = 0
+    for number in range(gif.n_frames - 1):
+        gif.seek(number)
+        total += gif.info["duration"]
+    assert total == pytest.approx(animation_seconds(True) * 1000)
+
+
+def test_gif_shows_the_same_symbols_when_the_reels_stop():
+    """The last spinning frame has to match the final grid: no jump between animation and result."""
+    grid = [[LEMON, CHERRY, BELL], [STAR, MELON, DIAMOND], [CHERRY, BELL, LEMON]]
+    gif = Image.open(io.BytesIO(render_spin_gif(grid, set(), 10, 0, seed=1)))
+    window = (60, 24, 360, 324)
+    gif.seek(gif.n_frames - 2)  # identical frames get merged, so count from the end
+    spinning = gif.convert("RGB").crop(window)
+    gif.seek(gif.n_frames - 1)
+    assert spinning.tobytes() == gif.convert("RGB").crop(window).tobytes()
+
+
+@pytest.mark.parametrize("payout, bet", [(0, 10), (10, 10), (10 ** 12, 10 ** 11)])
+def test_gif_draws_every_outcome(payout, bet):
+    assert render_spin_gif([[LEMON] * 3] * 3, set(), bet, payout, seed=1).startswith(b"GIF89a")

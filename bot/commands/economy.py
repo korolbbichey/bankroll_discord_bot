@@ -17,7 +17,7 @@ from ..database import (
 )
 from ..leaderboard_card import LeaderboardEntry, render_leaderboard_card
 from ..profile_card import CardData, render_profile_card
-from ..utils import fmt, display_name, avatar_hash
+from ..utils import fmt, display_name, avatar_hash, DRAW_SLOTS
 from ..progression import (
     BADGES, BADGES_BY_ID, level_for_xp, level_progress, progress_bar, title_for_level, record_badges, send_notice,
 )
@@ -26,8 +26,6 @@ LEADERBOARD_SIZE = 10
 GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack"}
 WEEK_STREAK = 7
 AVATAR_TIMEOUT = 3  # seconds per avatar
-# Each card briefly takes about 65 MB of memory, so only a couple are drawn at once.
-CARD_SLOTS = asyncio.Semaphore(2)
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +175,7 @@ def setup(client):
             viewer_entry = LeaderboardEntry(viewer_rank, display_name(viewer), viewer_row[1],
                                             level_for_xp(viewer_row[4]), viewer_avatar, True)
 
-        async with CARD_SLOTS:
+        async with DRAW_SLOTS:
             return await asyncio.to_thread(render_leaderboard_card, entries, get_player_count(), viewer_entry)
 
     @client.tree.command(name="leaderboard", description="Show the top users with the most virtual currency")
@@ -301,7 +299,7 @@ def setup(client):
         try:
             data = profile_card_data(target, profile_data)
             avatar = await read_avatar(target)
-            async with CARD_SLOTS:
+            async with DRAW_SLOTS:
                 png = await asyncio.to_thread(render_profile_card, data, avatar)
         except Exception:
             logger.exception("Failed to draw the profile card, sending text instead")
