@@ -46,23 +46,24 @@ def build_help_embed() -> discord.Embed:
 def build_announcement_embed() -> discord.Embed:
     """The one-time update announcement (see ANNOUNCEMENT_ID in config)."""
     embed = discord.Embed(
-        title="🆕 Bankroll Global Update!",
-        description="Bankroll just got a big upgrade — here's what's new:",
+        title="🎰 Bankroll Visual Update!",
+        description="Every game got a brand new look. Here's what's new:",
         color=discord.Color.gold(),
     )
-    payouts = " · ".join(f"{combo[0]} {multiplier}x" for combo, multiplier in SLOT_PAYOUTS.items())
-    embed.add_field(name="🎰 New slots", value=(
-        "No more clowns, and **every line pays** — rows, columns and diagonals.\n"
-        f"{payouts}\n"
-        "Results now show exactly which lines won."
+    embed.add_field(name="🎮 Animated games", value=(
+        "`/slots` — a real casino machine with spinning reels\n"
+        "`/coinflip` — a 3D coin flying through the air\n"
+        "`/blackjack` — a card table with real cards"
     ), inline=False)
-    embed.add_field(name="🃏 Blackjack", value="New **Double down** button, and blackjack pays 3:2.", inline=False)
-    embed.add_field(name="💸 Economy", value=(
-        "`/pay` — send coins to friends\n"
-        f"`/daily_reward` — 🔥 daily streaks: claim every day for up to **{fmt(DAILY_STREAK_REWARDS[-1])}** coins"
+    embed.add_field(name="🏅 Levels and badges", value=(
+        "Every game gives XP: climb from 🪙 Rookie to 💎 Legend.\n"
+        "`/badges` — collect 13 achievements"
+    ), inline=False)
+    embed.add_field(name="🖼️ Player cards", value=(
+        "`/profile` — your own card with your avatar, level and stats\n"
+        "`/leaderboard` — a podium for the top 3"
     ), inline=False)
     embed.add_field(name="🌍 Play anywhere", value=PLAY_ANYWHERE, inline=False)
-    embed.add_field(name="✨ Fresh look", value="Redesigned `/leaderboard` and `/profile`, and a fairer, more stable bot.", inline=False)
     embed.set_footer(text="Start with /help • Have fun!")
     return embed
 
