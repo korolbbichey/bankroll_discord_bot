@@ -6,10 +6,18 @@ import discord
 from discord import app_commands
 import random
 import asyncio
+import io
+import logging
 
+from ..coinflip_gif import animation_seconds, render_flip_gif
+from ..config import RESULT_DELAY_MARGIN
 from ..database import get_balance, try_debit, credit, update_stats
-from ..utils import validate_bet, fmt, Bet
+from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS
 from ..progression import track_game, send_notice
+
+logger = logging.getLogger(__name__)
+
+GIF_NAME = "flip.gif"
 
 
 def setup(client):
@@ -38,27 +46,31 @@ def setup(client):
         update_stats(user_id, payout, bet)
         progress = track_game(user_id, "coinflip", bet, payout)
 
-        embed = discord.Embed(
-            title="🪙 Coin Flip!",
-            description="Flipping the coin...",
-            color=discord.Color.random()
-        )
-        embed.set_footer(text="You guessed: " + guess_value.capitalize())
-        await interaction.response.send_message(embed=embed)
+        # Drawing and uploading can take longer than Discord's 3 seconds.
+        await interaction.response.defer()
 
-        for flip in ["Heads 🟤", "Tails ⚪", "Heads 🟤", "Tails ⚪"]:
-            embed.description = f"Flipping the coin...\n**{flip}**"
-            await interaction.edit_original_response(embed=embed)
-            await asyncio.sleep(0.5)
+        embed = discord.Embed(title="🪙 Flipping...", color=discord.Color.blurple())
+        embed.set_footer(text=f"You guessed: {guess_value.capitalize()} • Bet: {fmt(bet)}")
+        try:
+            async with DRAW_SLOTS:
+                gif = await asyncio.to_thread(render_flip_gif, outcome, guess_value, bet)
+            embed.set_image(url=f"attachment://{GIF_NAME}")
+            await interaction.edit_original_response(
+                embed=embed, attachments=[discord.File(io.BytesIO(gif), filename=GIF_NAME)]
+            )
+            await asyncio.sleep(animation_seconds(win) + RESULT_DELAY_MARGIN)
+        except Exception:
+            # The game is already settled, so the player just gets the result without the animation.
+            logger.exception("Coinflip animation failed, sending the result as text")
+            embed = discord.Embed()
+            embed.set_footer(text=f"You guessed: {guess_value.capitalize()} • Bet: {fmt(bet)}")
 
         emoji = "🟤" if outcome == "heads" else "⚪"
-        if win:
-            result = f"🎉 It landed on **{outcome.capitalize()} {emoji}**!\nYou win **{fmt(bet)}** coins!"
-        else:
-            result = f"😢 It landed on **{outcome.capitalize()} {emoji}**!\nYou lost **{fmt(bet)}** coins."
-
-        embed.title = "🪙 Coin Flip Result"
-        embed.description = result + f"\n\n💰 New Balance: **{fmt(new_balance)}**"
+        embed.title = "🎉 You won!" if win else "😢 You lost"
+        embed.description = (
+            f"It landed on **{outcome.capitalize()} {emoji}**\n"
+            f"{'You win' if win else 'You lost'} **{fmt(bet)}** coins • 💰 Balance: **{fmt(new_balance)}**"
+        )
         embed.color = discord.Color.green() if win else discord.Color.red()
         await interaction.edit_original_response(embed=embed)
         await send_notice(interaction, progress)

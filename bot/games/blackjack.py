@@ -4,15 +4,21 @@ Blackjack game for the BankRoll Discord Bot.
 
 import discord
 from discord import app_commands
+import asyncio
+import io
 import random
 import logging
 
 from ..config import GAME_TIMEOUT
 from ..database import get_balance, try_debit, credit, update_blackjack_stats
-from ..utils import validate_bet, fmt, Bet
+from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS
 from ..progression import Progress, track_game, send_notice
+from ..blackjack_card import render_table
+from ..slots_gif import GOLD_LIGHT, GREEN, MUTED, RED
 
 logger = logging.getLogger(__name__)
+
+TABLE_NAME = "table.png"
 
 RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
 SUITS = ['♠', '♥', '♦', '♣']
@@ -59,6 +65,7 @@ class BlackjackView(discord.ui.View):
         self.settled = False
         self.doubled = False
         self.progress: Progress | None = None  # set when the game is settled
+        self.status = ("HIT, STAND OR DOUBLE", MUTED)  # the line on the table picture
         self.last_interaction: discord.Interaction | None = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -95,6 +102,28 @@ class BlackjackView(discord.ui.View):
         embed.add_field(name="💵 New Balance", value=f"{fmt(balance)} coins", inline=False)
         return embed
 
+    async def show(self, interaction: discord.Interaction, embed: discord.Embed):
+        """Show the game on a drawn table. The interaction must be deferred. Without a picture, the embed's text is enough."""
+        try:
+            async with DRAW_SLOTS:
+                png = await asyncio.to_thread(
+                    render_table, self.player, self.dealer, hand_value(self.player),
+                    hand_value(self.dealer) if self.settled else None, *self.status, not self.settled,
+                )
+        except Exception:
+            logger.exception("Failed to draw the blackjack table, showing text instead")
+            await interaction.edit_original_response(embed=embed, view=self, attachments=[])
+            return
+
+        # The hands are on the picture, so the text doesn't repeat them.
+        for index in reversed(range(len(embed.fields))):
+            if embed.fields[index].name in ("Your Hand", "Dealer's Hand"):
+                embed.remove_field(index)
+        embed.set_image(url=f"attachment://{TABLE_NAME}")
+        await interaction.edit_original_response(
+            embed=embed, view=self, attachments=[discord.File(io.BytesIO(png), filename=TABLE_NAME)]
+        )
+
     # ---------- game logic ----------
 
     def settle(self, outcome: str, profit: int, note: str = "", natural: bool = False) -> discord.Embed:
@@ -108,6 +137,16 @@ class BlackjackView(discord.ui.View):
         balance = credit(self.user_id, payout) if payout > 0 else get_balance(self.user_id)
         update_blackjack_stats(self.user_id, profit, is_win=profit > 0, is_push=profit == 0)
         self.progress = track_game(self.user_id, "blackjack", self.bet, payout, natural=natural, doubled=self.doubled)
+        if natural:
+            self.status = (f"BLACKJACK +{fmt(profit)}", GOLD_LIGHT)
+        elif profit > 0:
+            self.status = (f"YOU WON +{fmt(profit)}", GREEN)
+        elif profit == 0:
+            self.status = ("PUSH", GOLD_LIGHT)
+        elif hand_value(self.player) > 21:
+            self.status = (f"BUSTED -{fmt(-profit)}", RED)
+        else:
+            self.status = (f"YOU LOST {fmt(-profit)}", RED)
         return self.result_embed(outcome, profit, balance, note)
 
     def check_naturals(self) -> discord.Embed | None:
@@ -148,13 +187,16 @@ class BlackjackView(discord.ui.View):
             embed = self.resolve_stand()
         else:
             embed = self.playing_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.defer()
+        await self.show(interaction, embed)
         await send_notice(interaction, self.progress)
 
     @discord.ui.button(label="✋ Stand", style=discord.ButtonStyle.secondary)
     async def stand(self, interaction: discord.Interaction, _):
         self.last_interaction = interaction
-        await interaction.response.edit_message(embed=self.resolve_stand(), view=self)
+        embed = self.resolve_stand()
+        await interaction.response.defer()
+        await self.show(interaction, embed)
         await send_notice(interaction, self.progress)
 
     @discord.ui.button(label="💰 Double", style=discord.ButtonStyle.success)
@@ -170,7 +212,8 @@ class BlackjackView(discord.ui.View):
             embed = self.settle("💥 You Busted!", -self.bet)
         else:
             embed = self.resolve_stand()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.defer()
+        await self.show(interaction, embed)
         await send_notice(interaction, self.progress)
 
     async def on_timeout(self):
@@ -180,7 +223,7 @@ class BlackjackView(discord.ui.View):
         embed.set_footer(text="⌛ Timed out — stood automatically.")
         if self.last_interaction:
             try:
-                await self.last_interaction.edit_original_response(embed=embed, view=self)
+                await self.show(self.last_interaction, embed)
                 await send_notice(self.last_interaction, self.progress)
             except discord.HTTPException:
                 pass
@@ -206,7 +249,8 @@ def setup(client):
                 if bet > get_balance(user_id):
                     view.double.disabled = True
                 embed = view.playing_embed()
-            await interaction.response.send_message(embed=embed, view=view)
+            await interaction.response.defer()
+            await view.show(interaction, embed)
             await send_notice(interaction, view.progress)
         except Exception:
             if not view.settled:

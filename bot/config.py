@@ -62,5 +62,9 @@ SLOT_PAYOUTS = {
     "\U0001f48e\U0001f48e\U0001f48e": 50
 }
 
+# An animated GIF starts when the player's client has loaded it, which is later than the upload finishing.
+# Result text waits this much longer (seconds) so it doesn't spoil the animation.
+RESULT_DELAY_MARGIN = 1.5
+
 # Game timeouts (in seconds)
 GAME_TIMEOUT = 60
