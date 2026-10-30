@@ -9,6 +9,7 @@ import asyncio
 
 from ..database import get_balance, try_debit, credit, update_stats
 from ..utils import validate_bet, fmt, Bet
+from ..progression import track_game, send_notice
 
 
 def setup(client):
@@ -35,6 +36,7 @@ def setup(client):
         payout = bet * 2 if win else 0
         new_balance = credit(user_id, payout) if win else get_balance(user_id)
         update_stats(user_id, payout, bet)
+        progress = track_game(user_id, "coinflip", bet, payout)
 
         embed = discord.Embed(
             title="🪙 Coin Flip!",
@@ -59,3 +61,4 @@ def setup(client):
         embed.description = result + f"\n\n💰 New Balance: **{fmt(new_balance)}**"
         embed.color = discord.Color.green() if win else discord.Color.red()
         await interaction.edit_original_response(embed=embed)
+        await send_notice(interaction, progress)

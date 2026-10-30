@@ -2,21 +2,40 @@
 Economy commands for the BankRoll Discord Bot.
 """
 
+import logging
+from datetime import datetime
+
 import discord
 from discord import app_commands
 
 from ..config import MAX_TRANSFER, STARTING_BALANCE
 from ..database import (
     get_balance, get_leaderboard, get_rank, get_player_count, claim_daily_reward, get_daily_streak,
-    get_user_profile, transfer, save_username,
+    get_user_profile, transfer, save_username, get_player_progress, get_game_stats, get_badges,
 )
 from ..utils import fmt, display_name
+from ..progression import (
+    BADGES, level_progress, progress_bar, title_for_level, record_badges, send_notice,
+)
 
 LEADERBOARD_SIZE = 10
+GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack"}
+WEEK_STREAK = 7
+
+logger = logging.getLogger(__name__)
 
 
 def streak_text(days: int) -> str:
     return f"{days} day{'s' if days != 1 else ''}"
+
+
+def safe_badges(user_id, badge_ids: list[str], check_wealth: bool = False):
+    """Award badges without ever breaking the command that triggered them."""
+    try:
+        return record_badges(user_id, badge_ids, check_wealth)
+    except Exception:
+        logger.exception("Failed to award badges")
+        return None
 
 
 def win_rate(wins: int, losses: int) -> str:
@@ -57,6 +76,7 @@ def setup(client):
             f"💸 {interaction.user.mention} sent **{fmt(amount)}** coins to {user.mention}!\n"
             f"Your balance: 💰 {fmt(get_balance(interaction.user.id))}"
         )
+        await send_notice(interaction, safe_badges(interaction.user.id, ["generous"]))
 
     @client.tree.command(name="daily_reward", description="Claim your daily reward — keep a streak for bigger rewards")
     async def daily_reward(interaction: discord.Interaction):
@@ -82,6 +102,8 @@ def setup(client):
         embed.add_field(name="💰 Balance", value=fmt(claim.balance), inline=True)
         embed.set_footer(text=f"Come back in {wait} for {fmt(claim.next_reward)} coins. Miss a day and the streak resets.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+        await send_notice(interaction, safe_badges(
+            interaction.user.id, ["week_streak"] if claim.streak >= WEEK_STREAK else [], check_wealth=True))
 
     @client.tree.command(name="leaderboard", description="Show the top users with the most virtual currency")
     async def leaderboard(interaction: discord.Interaction):
@@ -126,7 +148,7 @@ def setup(client):
         else:
             await interaction.response.send_message(embed=embed)
 
-    @client.tree.command(name="profile", description="View your game stats and balance")
+    @client.tree.command(name="profile", description="View a player's level, badges and stats")
     @app_commands.describe(user="The user to view (leave empty for yourself)")
     async def profile(interaction: discord.Interaction, user: discord.User = None):
         target = user or interaction.user
@@ -145,32 +167,55 @@ def setup(client):
 
         games, wins, losses, total_earned, largest_win = stats_row or (0, 0, 0, 0, 0)
         bj_wins, bj_losses, bj_total_earned, bj_largest_win = blackjack_row or (0, 0, 0, 0)
+        xp, first_played = get_player_progress(target.id)
+        level, xp_into_level, level_span = level_progress(xp)
+        title = title_for_level(level)
 
-        embed = discord.Embed(title=f"🎮 {name}'s profile", color=discord.Color.gold())
+        embed = discord.Embed(
+            title=f"{title.emoji} {name}",
+            description=(
+                f"**{title.name}** · Level {level}\n"
+                f"{progress_bar(xp_into_level, level_span)}  {fmt(xp_into_level)} / {fmt(level_span)} XP"
+            ),
+            color=title.color,
+        )
         embed.set_thumbnail(url=target.display_avatar.url)
 
         rank = get_rank(target.id)
         streak = get_daily_streak(target.id)
         embed.add_field(
-            name="💰 Balance",
+            name="💰 Wallet",
             value=f"**{fmt(profile_data['balance'])}** coins"
-                  + (f" • Rank #{rank}" if rank else "")
-                  + (f" • 🔥 {streak_text(streak)} streak" if streak else ""),
+                  + (f" · Rank #{rank}" if rank else "")
+                  + (f" · 🔥 {streak_text(streak)} streak" if streak else ""),
             inline=False,
         )
-        embed.add_field(name="🎰 Slots & Coinflip", value=(
-            f"Games: **{fmt(games)}**\n"
-            f"Wins / Losses: **{fmt(wins)}** / **{fmt(losses)}**\n"
-            f"Win rate: **{win_rate(wins, losses)}**\n"
-            f"Biggest win: **{fmt(largest_win)}**\n"
-            f"Total earned: **{fmt(total_earned)}**\n"
-            f"Favorite symbol: {profile_data['most_common_symbol'] or '—'}"
-        ), inline=True)
-        embed.add_field(name="🃏 Blackjack", value=(
-            f"Wins / Losses: **{fmt(bj_wins)}** / **{fmt(bj_losses)}**\n"
-            f"Win rate: **{win_rate(bj_wins, bj_losses)}**\n"
-            f"Biggest win: **{fmt(bj_largest_win)}**\n"
-            f"Total earned: **{fmt(bj_total_earned)}**"
-        ), inline=True)
+
+        earned = get_badges(target.id)
+        unlocked = [badge for badge in BADGES if badge.id in earned]
+        locked = [badge for badge in BADGES if badge.id not in earned]
+        badge_lines = ["  ".join(f"{b.emoji} {b.name}" for b in unlocked) or "None yet — win a game to earn your first!"]
+        if locked:
+            badge_lines.append(f"🔒 Next: {locked[0].emoji} **{locked[0].name}** — {locked[0].description}")
+        embed.add_field(name=f"🏅 Badges ({len(unlocked)}/{len(BADGES)})", value="\n".join(badge_lines), inline=False)
+
+        stat_lines = [
+            f"🎰 **Slots & Coinflip** — {fmt(games)} games · {win_rate(wins, losses)} wins · best +{fmt(largest_win)}",
+            f"🃏 **Blackjack** — {fmt(bj_wins + bj_losses)} games · {win_rate(bj_wins, bj_losses)} wins · best +{fmt(bj_largest_win)}",
+            f"💸 Total won: **{fmt(total_earned + bj_total_earned)}** coins",
+        ]
+        favorites = []
+        game_stats = get_game_stats(target.id)
+        if game_stats:
+            favorite_game = max(game_stats, key=lambda game: game_stats[game][0])
+            favorites.append(f"❤️ Favorite game: **{GAME_NAMES[favorite_game]}**")
+        if profile_data["most_common_symbol"]:
+            favorites.append(f"lucky symbol {profile_data['most_common_symbol']}")
+        if favorites:
+            stat_lines.append(" · ".join(favorites))
+        if first_played:
+            since = datetime.strptime(first_played, "%Y-%m-%d").strftime("%b %d, %Y")
+            stat_lines.append(f"📅 Playing since **{since}**")
+        embed.add_field(name="📊 Stats", value="\n".join(stat_lines), inline=False)
 
         await interaction.response.send_message(embed=embed)

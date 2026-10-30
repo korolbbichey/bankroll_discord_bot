@@ -11,6 +11,7 @@ import logging
 from ..config import SLOT_SYMBOLS, SYMBOL_WEIGHTS, SLOT_PAYOUTS, MIN_BET, MAX_BET, GAME_TIMEOUT
 from ..database import get_balance, try_debit, credit, update_stats
 from ..utils import validate_bet, fmt, Bet
+from ..progression import track_game, send_notice
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,8 @@ class SlotView(discord.ui.View):
             update_stats(self.user_id, payout, self.bet, final_grid)
         finally:
             self.spinning = False
+        progress = track_game(self.user_id, "slots", self.bet, payout,
+                              winning_combos=[combo for _, combo, _ in winning_lines])
 
         if payout > self.bet:
             title, color = f"🎉 You won {fmt(payout - self.bet)}!", discord.Color.green()
@@ -168,6 +171,7 @@ class SlotView(discord.ui.View):
 
         self.set_disabled(False)
         await interaction.edit_original_response(embed=self.render(), view=self)
+        await send_notice(interaction, progress)
 
 
 def setup(client):

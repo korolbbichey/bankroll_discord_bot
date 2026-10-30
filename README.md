@@ -19,10 +19,12 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 - **Help** (`/help`) - Command list, slot payouts and Terms of Service
 
 ### User Profiles
-- **Profile** (`/profile [@user]`) - View comprehensive stats including:
-  - Games played, wins, losses, win rate
-  - Total earned, largest win
-  - Separate Blackjack statistics
+- **Profile** (`/profile [@user]`) - A player card with:
+  - **Level and title** — every game gives XP (10, +5 for a win). Titles: 🪙 Rookie (1) → 🎲 Gambler (3) → 💼 High Roller (6) → 🎩 Card Shark (10) → 👑 Casino King (15) → 💎 Legend (25). The card color follows the title
+  - **Badges** — 13 achievements (first win, 100 spins, 💎💎💎 line, natural 21, 7-day streak, 10,000 coins, top 3, ...) plus a hint for the next one
+  - **Stats** — games, win rate and best win per game, total won, favorite game and lucky symbol, playing since
+
+Level-ups and new badges are announced to the player privately right after the game. Rules live in `bot/progression.py`.
 
 ### Admin Commands
 Balances are shared across every server, so admin commands are restricted to the **bot owner** (the application owner in the Developer Portal, plus anyone listed in `OWNER_IDS`). They are registered **only in the server set by `ADMIN_GUILD_ID`**, so they don't appear anywhere else or on the bot's profile. If `ADMIN_GUILD_ID` is not set, they are disabled.

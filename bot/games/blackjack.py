@@ -10,6 +10,7 @@ import logging
 from ..config import GAME_TIMEOUT
 from ..database import get_balance, try_debit, credit, update_blackjack_stats
 from ..utils import validate_bet, fmt, Bet
+from ..progression import Progress, track_game, send_notice
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,8 @@ class BlackjackView(discord.ui.View):
         self.player = [self.deck.pop(), self.deck.pop()]
         self.dealer = [self.deck.pop(), self.deck.pop()]
         self.settled = False
+        self.doubled = False
+        self.progress: Progress | None = None  # set when the game is settled
         self.last_interaction: discord.Interaction | None = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -94,7 +97,7 @@ class BlackjackView(discord.ui.View):
 
     # ---------- game logic ----------
 
-    def settle(self, outcome: str, profit: int, note: str = "") -> discord.Embed:
+    def settle(self, outcome: str, profit: int, note: str = "", natural: bool = False) -> discord.Embed:
         """Pay out and record stats exactly once. profit is relative to the (already debited) bet."""
         self.settled = True
         self.stop()
@@ -104,6 +107,7 @@ class BlackjackView(discord.ui.View):
         payout = self.bet + profit  # 0 on a loss, bet on a push, bet+profit on a win
         balance = credit(self.user_id, payout) if payout > 0 else get_balance(self.user_id)
         update_blackjack_stats(self.user_id, profit, is_win=profit > 0, is_push=profit == 0)
+        self.progress = track_game(self.user_id, "blackjack", self.bet, payout, natural=natural, doubled=self.doubled)
         return self.result_embed(outcome, profit, balance, note)
 
     def check_naturals(self) -> discord.Embed | None:
@@ -111,7 +115,7 @@ class BlackjackView(discord.ui.View):
         if player_bj and dealer_bj:
             return self.settle("🤝 Both Blackjack - Push!", 0)
         if player_bj:
-            return self.settle("🎰 BLACKJACK!", int(self.bet * 1.5), " (Blackjack pays 3:2!)")
+            return self.settle("🎰 BLACKJACK!", int(self.bet * 1.5), " (Blackjack pays 3:2!)", natural=True)
         if dealer_bj:
             return self.settle("🃏 Dealer has Blackjack!", -self.bet)
         return None
@@ -145,11 +149,13 @@ class BlackjackView(discord.ui.View):
         else:
             embed = self.playing_embed()
         await interaction.response.edit_message(embed=embed, view=self)
+        await send_notice(interaction, self.progress)
 
     @discord.ui.button(label="✋ Stand", style=discord.ButtonStyle.secondary)
     async def stand(self, interaction: discord.Interaction, _):
         self.last_interaction = interaction
         await interaction.response.edit_message(embed=self.resolve_stand(), view=self)
+        await send_notice(interaction, self.progress)
 
     @discord.ui.button(label="💰 Double", style=discord.ButtonStyle.success)
     async def double(self, interaction: discord.Interaction, _):
@@ -158,12 +164,14 @@ class BlackjackView(discord.ui.View):
             await interaction.response.send_message("❌ Not enough coins to double down.", ephemeral=True)
             return
         self.bet *= 2
+        self.doubled = True
         self.player.append(self.deck.pop())
         if hand_value(self.player) > 21:
             embed = self.settle("💥 You Busted!", -self.bet)
         else:
             embed = self.resolve_stand()
         await interaction.response.edit_message(embed=embed, view=self)
+        await send_notice(interaction, self.progress)
 
     async def on_timeout(self):
         if self.settled:
@@ -173,6 +181,7 @@ class BlackjackView(discord.ui.View):
         if self.last_interaction:
             try:
                 await self.last_interaction.edit_original_response(embed=embed, view=self)
+                await send_notice(self.last_interaction, self.progress)
             except discord.HTTPException:
                 pass
 
@@ -198,6 +207,7 @@ def setup(client):
                     view.double.disabled = True
                 embed = view.playing_embed()
             await interaction.response.send_message(embed=embed, view=view)
+            await send_notice(interaction, view.progress)
         except Exception:
             if not view.settled:
                 view.stop()

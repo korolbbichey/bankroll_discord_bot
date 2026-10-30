@@ -35,6 +35,10 @@ DAILY_STREAK_REWARDS = [DAILY_REWARD, 55, 60, 70, 80, 90, 100]
 STARTING_BALANCE = 100
 MAX_TRANSFER = 1_000_000
 
+# Progression: XP per finished game (any game) and bonus XP for a win.
+XP_PER_GAME = 10
+XP_PER_WIN = 5
+
 # Slot machine configuration
 SLOT_SYMBOLS = ["\U0001f34b", "\U0001f352", "\U0001f349", "\U0001f514", "⭐", "\U0001f48e"]
 

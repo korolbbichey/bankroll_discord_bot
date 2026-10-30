@@ -149,10 +149,33 @@ def test_profile_embed(bot, db):
         await command(bot, "profile").callback(interaction, None)
         return sent_embed(interaction.response.send_message)
     embed = asyncio.run(go())
-    assert embed.title == "🎮 Alice's profile"
-    assert [f.name for f in embed.fields] == ["💰 Balance", "🎰 Slots & Coinflip", "🃏 Blackjack"]
+    assert embed.title == "🪙 Alice"
+    assert embed.description.startswith("**Rookie** · Level 1\n")
+    assert [f.name for f in embed.fields] == ["💰 Wallet", "🏅 Badges (0/13)", "📊 Stats"]
     assert "2,500" in embed.fields[0].value and "Rank #1" in embed.fields[0].value
-    assert "Favorite symbol: 🍒" in embed.fields[1].value
+    assert "None yet" in embed.fields[1].value and "🔒 Next:" in embed.fields[1].value
+    assert "lucky symbol 🍒" in embed.fields[2].value
+
+
+def test_profile_shows_level_badges_and_favorite_game(bot, db):
+    from bot import progression
+    db.set_balance(1, 500)
+    for _ in range(8):  # 8 slot wins -> 8 * 15 = 120 XP -> level 2
+        db.update_stats(1, 30, 10)
+        progression.record_game(1, "slots", 10, 30)
+    progression.record_game(1, "blackjack", 10, 20, natural=True)
+    db.update_blackjack_stats(1, 10, True)
+
+    async def go():
+        interaction = make_interaction(1, user=make_user(1, global_name="Alice"))
+        await command(bot, "profile").callback(interaction, None)
+        return sent_embed(interaction.response.send_message)
+    embed = asyncio.run(go())
+    assert "Level 2" in embed.description and "35 / 200 XP" in embed.description
+    assert embed.fields[1].name == "🏅 Badges (2/13)"
+    assert "🍀 First Win" in embed.fields[1].value and "🃏 Natural 21" in embed.fields[1].value
+    assert "Favorite game: **Slots**" in embed.fields[2].value
+    assert "📅 Playing since" in embed.fields[2].value
 
 
 def test_announcement_once_per_server(bot):

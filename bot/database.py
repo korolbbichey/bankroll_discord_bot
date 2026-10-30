@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from .config import DB_FILE, STARTING_BALANCE, DAILY_STREAK_REWARDS
+from .config import DB_FILE, STARTING_BALANCE, DAILY_STREAK_REWARDS, XP_PER_GAME, XP_PER_WIN
 
 
 @contextmanager
@@ -83,6 +83,47 @@ def init_db():
 
         # The clown symbol was removed from the slots.
         cursor.execute("DELETE FROM symbol_counts WHERE symbol = ?", ("\U0001f921",))
+
+        # ---- Progression: XP, per-game stats and badges ----
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'players'")
+        players_is_new = cursor.fetchone() is None
+        cursor.execute('''CREATE TABLE IF NOT EXISTS players (
+            user_id INTEGER PRIMARY KEY,
+            xp INTEGER DEFAULT 0,
+            first_played TEXT
+        )''')
+        # game is 'slots', 'coinflip' or 'blackjack'; net is total payout minus total bets
+        cursor.execute('''CREATE TABLE IF NOT EXISTS game_stats (
+            user_id INTEGER NOT NULL,
+            game TEXT NOT NULL,
+            games INTEGER DEFAULT 0,
+            wins INTEGER DEFAULT 0,
+            net INTEGER DEFAULT 0,
+            PRIMARY KEY (user_id, game)
+        )''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS badges (
+            user_id INTEGER NOT NULL,
+            badge TEXT NOT NULL,
+            earned_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, badge)
+        )''')
+        if players_is_new:
+            # Existing players keep their progress: XP is rebuilt from the stats recorded so far.
+            cursor.execute("""
+                INSERT INTO players (user_id, xp)
+                SELECT user_id, SUM(games) * ? + SUM(wins) * ? FROM (
+                    SELECT user_id, games_played AS games, wins FROM stats
+                    UNION ALL
+                    SELECT user_id, blackjack_wins + blackjack_losses, blackjack_wins FROM blackjack_stats
+                ) GROUP BY user_id
+            """, (XP_PER_GAME, XP_PER_WIN))
+            # The only badge the old stats can prove: anyone with a recorded win already has "First Win".
+            cursor.execute("""
+                INSERT OR IGNORE INTO badges (user_id, badge, earned_at)
+                SELECT user_id, 'first_win', date('now') FROM stats WHERE wins > 0
+                UNION
+                SELECT user_id, 'first_win', date('now') FROM blackjack_stats WHERE blackjack_wins > 0
+            """)
 
 
 def _ensure_account(cursor, user_id):
@@ -345,3 +386,64 @@ def get_user_profile(user_id) -> dict:
         "blackjack": blackjack_row,
         "most_common_symbol": symbol_row[0] if symbol_row else None,
     }
+
+
+# ============== Progression Operations ==============
+
+def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, today: str) -> tuple[int, int]:
+    """
+    Add a finished game to the player's per-game stats and XP.
+    Returns (xp_before, xp_after).
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO players (user_id, xp, first_played) VALUES (?, 0, ?)", (user_id, today))
+        cursor.execute("UPDATE players SET first_played = ? WHERE user_id = ? AND first_played IS NULL", (today, user_id))
+        cursor.execute("SELECT xp FROM players WHERE user_id = ?", (user_id,))
+        xp_before = cursor.fetchone()[0]
+        cursor.execute("UPDATE players SET xp = xp + ? WHERE user_id = ?", (xp_gain, user_id))
+        cursor.execute("""
+            INSERT INTO game_stats (user_id, game, games, wins, net) VALUES (?, ?, 1, ?, ?)
+            ON CONFLICT(user_id, game) DO UPDATE SET
+                games = games + 1,
+                wins = wins + excluded.wins,
+                net = net + excluded.net
+        """, (user_id, game, int(won), net))
+    return xp_before, xp_before + xp_gain
+
+
+def get_player_progress(user_id) -> tuple[int, str | None]:
+    """(xp, first_played date as YYYY-MM-DD or None)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT xp, first_played FROM players WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+    return (row[0], row[1]) if row else (0, None)
+
+
+def get_game_stats(user_id) -> dict[str, tuple[int, int, int]]:
+    """Per-game stats recorded since progression was added: {game: (games, wins, net)}."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT game, games, wins, net FROM game_stats WHERE user_id = ?", (user_id,))
+        return {game: (games, wins, net) for game, games, wins, net in cursor.fetchall()}
+
+
+def award_badges(user_id, badge_ids: list[str], today: str) -> list[str]:
+    """Give badges the user doesn't have yet. Returns only the newly earned ones, in the given order."""
+    new = []
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        for badge_id in badge_ids:
+            cursor.execute("INSERT OR IGNORE INTO badges (user_id, badge, earned_at) VALUES (?, ?, ?)",
+                           (user_id, badge_id, today))
+            if cursor.rowcount == 1:
+                new.append(badge_id)
+    return new
+
+
+def get_badges(user_id) -> set[str]:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT badge FROM badges WHERE user_id = ?", (user_id,))
+        return {row[0] for row in cursor.fetchall()}
