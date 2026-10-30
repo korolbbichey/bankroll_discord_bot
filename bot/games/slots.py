@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 _WEIGHTS = [SYMBOL_WEIGHTS[s] for s in SLOT_SYMBOLS]
 SPIN_COLOR = discord.Color.blurple()
 GIF_NAME = "spin.gif"
+# The GIF starts when the player's client has loaded it, which is later than the upload finishing.
+# The numbers wait this much longer so they don't spoil the result.
+RESULT_DELAY_MARGIN = 1.5  # seconds
 
 
 LINE_NAMES = ["Row 1", "Row 2", "Row 3", "Column 1", "Column 2", "Column 3", "Diagonal ↘", "Diagonal ↙"]
@@ -167,7 +170,7 @@ class SlotView(discord.ui.View):
             raise
         progress = track_game(self.user_id, "slots", self.bet, payout,
                               winning_combos=[combo for _, combo, _ in winning_lines])
-        await asyncio.sleep(animation_seconds(bool(winning_lines)))
+        await asyncio.sleep(animation_seconds(bool(winning_lines)) + RESULT_DELAY_MARGIN)
         self.spinning = False
 
         if payout > self.bet:

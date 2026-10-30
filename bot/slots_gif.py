@@ -1,5 +1,5 @@
 """
-Draws a slots spin as an animated GIF with Pillow: a small casino machine with chasing lights.
+Draws a slots spin as an animated GIF with Pillow: a small casino machine.
 Knows nothing about Discord or the database.
 
 The reels spin and stop one by one, then the winning cells light up and the result is shown,
@@ -25,12 +25,14 @@ REELS_TOP = 92
 REELS_BOTTOM = REELS_TOP + 3 * CELL
 REEL_GAP = 4
 
-FRAME_MS = 60
-STOP_FRAMES = (12, 17, 22)  # the frame each reel stops on, left to right
+# The lights must not change between frames: they sit on the edge of the picture, so GIF would have
+# to rewrite almost the whole image each time, which makes the file about 3 times bigger.
+FRAME_MS = 80
+STOP_FRAMES = (9, 13, 17)   # the frame each reel stops on, left to right
 EXTRA_SYMBOLS = 12          # how many symbols scroll past before a reel lands
 BLUR_ABOVE_SPEED = 30       # pixels per frame
-WIN_FRAMES = 12
-WIN_FRAME_MS = 70
+WIN_FRAMES = 8
+WIN_FRAME_MS = 90
 BIG_WIN_MULTIPLIER = 10     # a payout of this many bets gets the coin shower
 LAST_FRAME_MS = 4000
 
@@ -137,8 +139,8 @@ def _bulb_positions() -> list[tuple[int, int]]:
 
 
 @lru_cache(maxsize=None)
-def _cabinet(phase: int) -> Image.Image:
-    """The machine without reel contents. The lights chase in three phases."""
+def _cabinet() -> Image.Image:
+    """The machine without reel contents."""
     frame = _vertical_gradient((WIDTH, HEIGHT), CABINET_TOP, CABINET_BOTTOM)
 
     # Gold frame around the cabinet
@@ -153,7 +155,7 @@ def _cabinet(phase: int) -> Image.Image:
     lights = Image.new("RGBA", (WIDTH * 2, HEIGHT * 2), (0, 0, 0, 0))
     draw = ImageDraw.Draw(lights)
     for index, (x, y) in enumerate(_bulb_positions()):
-        lit = index % 3 == phase
+        lit = index % 3 == 0
         if lit:
             draw.ellipse(((x - 10) * 2, (y - 10) * 2, (x + 10) * 2, (y + 10) * 2), fill=BULB_ON + (70,))
         color = BULB_ON if lit else BULB_OFF
@@ -250,9 +252,9 @@ def _draw_sparkle(draw: ImageDraw.ImageDraw, x: float, y: float, size: float):
     draw.polygon(points, fill=(255, 250, 215))
 
 
-def _reels_frame(windows: list[Image.Image], phase: int, highlight: set[tuple[int, int]] = frozenset(),
+def _reels_frame(windows: list[Image.Image], highlight: set[tuple[int, int]] = frozenset(),
                  glow: float = 0.0) -> Image.Image:
-    frame = _cabinet(phase).convert("RGBA")
+    frame = _cabinet().convert("RGBA")
     for row, col in highlight:
         x, y = REELS_LEFT + col * CELL + REEL_GAP // 2, REELS_TOP + row * CELL
         size = (CELL - REEL_GAP - 6, CELL - 6)
@@ -280,7 +282,7 @@ def render_spin_gif(grid: list[list[str]], winning_cells: set[tuple[int, int]], 
             progress = _reel_progress(number, STOP_FRAMES[col])
             speed = abs(progress - _reel_progress(number + 1, STOP_FRAMES[col])) * travel
             windows.append(_reel_window(strips[col], progress, speed > BLUR_ABOVE_SPEED))
-        frame = _reels_frame(windows, number % 3)
+        frame = _reels_frame(windows)
         _caption(frame, "SPINNING...", MUTED, 22)
         frames.append(frame)
         durations.append(FRAME_MS)
@@ -295,7 +297,7 @@ def render_spin_gif(grid: list[list[str]], winning_cells: set[tuple[int, int]], 
                     for _ in range(14)]
         coins = [(rng.randint(30, WIDTH - 60), rng.randint(-160, -30), rng.randint(14, 30)) for _ in range(16)]
         for number in range(WIN_FRAMES):
-            frame = _reels_frame(final, number % 3, winning_cells, glow=(math.sin(number * 1.1) + 1) / 2)
+            frame = _reels_frame(final, winning_cells, glow=(math.sin(number * 1.6) + 1) / 2)
             draw = ImageDraw.Draw(frame)
             for x, y, start in sparkles:
                 age = (number - start) % WIN_FRAMES
@@ -308,7 +310,7 @@ def render_spin_gif(grid: list[list[str]], winning_cells: set[tuple[int, int]], 
             frames.append(frame)
             durations.append(WIN_FRAME_MS)
 
-    last = _reels_frame(final, 0, winning_cells, glow=1.0 if winning_cells else 0.0)
+    last = _reels_frame(final, winning_cells, glow=1.0 if winning_cells else 0.0)
     _caption(last, text, color)
     frames.append(last)
     durations.append(LAST_FRAME_MS)
