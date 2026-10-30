@@ -19,10 +19,12 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 - **Help** (`/help`) - Command list, slot payouts and Terms of Service
 
 ### User Profiles
-- **Profile** (`/profile [@user]`) - A player card with:
+- **Profile** (`/profile [@user]`) - An image card drawn with Pillow (`bot/profile_card.py`; asset credits in `bot/assets/CREDITS.md`). Falls back to a text version if drawing fails. Avatars are downloaded only to draw the card and are never stored. It shows:
   - **Level and title** — every game gives XP (10, +5 for a win). Titles: 🪙 Rookie (1) → 🎲 Gambler (3) → 💼 High Roller (6) → 🎩 Card Shark (10) → 👑 Casino King (15) → 💎 Legend (25). The card color follows the title
   - **Badges** — 13 achievements (first win, 100 spins, 💎💎💎 line, natural 21, 7-day streak, 10,000 coins, top 3, ...) plus a hint for the next one
   - **Stats** — games, win rate and best win per game, total won, favorite game and lucky symbol, playing since
+
+- **Badges** (`/badges [@user]`) - Every badge and how to earn it
 
 Level-ups and new badges are announced to the player privately right after the game. Rules live in `bot/progression.py`.
 

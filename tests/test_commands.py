@@ -29,7 +29,7 @@ def command(bot, name):
 
 def test_public_commands_are_registered(bot):
     names = sorted(c.name for c in bot.tree.get_commands())
-    assert names == ["balance", "blackjack", "coinflip", "daily_reward", "help", "leaderboard", "pay", "profile", "slots"]
+    assert names == ["badges", "balance", "blackjack", "coinflip", "daily_reward", "help", "leaderboard", "pay", "profile", "slots"]
 
 
 def test_public_commands_support_user_install_everywhere(bot):
@@ -139,25 +139,82 @@ def test_leaderboard_fetches_and_stores_missing_names(bot, db):
     assert db.get_leaderboard(1)[0][2] == "Fetched"
 
 
-def test_profile_embed(bot, db):
+def text_profile(bot, monkeypatch, interaction):
+    """Run /profile with the image card failing, which falls back to the text embed."""
+    def broken(*args):
+        raise OSError("no font")
+    monkeypatch.setattr(main.economy, "render_profile_card", broken)
+
+    async def go():
+        await command(bot, "profile").callback(interaction, None)
+        return sent_embed(interaction.followup.send)
+    return asyncio.run(go())
+
+
+def test_profile_sends_an_image_card(bot, db):
+    db.update_stats(1, 30, 10)
+
+    async def go():
+        interaction = make_interaction(1, done=False)
+        await command(bot, "profile").callback(interaction, None)
+        interaction.response.defer.assert_awaited()
+        return interaction.followup.send.call_args.kwargs["file"]
+    file = asyncio.run(go())
+    assert file.filename == "profile.png"
+    assert file.fp.read(8) == b"\x89PNG\r\n\x1a\n"
+
+
+def test_profile_card_data_combines_all_games(bot, db, monkeypatch):
     db.set_balance(1, 2500)
-    db.update_stats(1, 30, 10, [["🍒"] * 3] * 3)
-    db.update_blackjack_stats(1, 10, True)
+    db.update_stats(1, 30, 10)
+    db.update_stats(1, 0, 10)
+    db.update_blackjack_stats(1, 50, True)
+    db.claim_daily_reward(1)
+    captured = {}
+
+    def fake_render(data, avatar):
+        captured["data"], captured["avatar"] = data, avatar
+        return b"png"
+    monkeypatch.setattr(main.economy, "render_profile_card", fake_render)
 
     async def go():
         interaction = make_interaction(1, user=make_user(1, global_name="Alice"))
+        interaction.user.display_avatar.with_format.return_value.with_size.return_value.read = AsyncMock(return_value=b"avatar")
         await command(bot, "profile").callback(interaction, None)
-        return sent_embed(interaction.response.send_message)
-    embed = asyncio.run(go())
+    asyncio.run(go())
+    data = captured["data"]
+    assert captured["avatar"] == b"avatar"
+    assert (data.name, data.games, data.win_rate, data.best_win, data.streak) == ("Alice", 3, "67%", 50, 1)
+    assert data.balance == 2550 and data.rank == 1
+
+
+def test_profile_card_works_without_an_avatar(bot, db):
+    db.update_stats(1, 0, 10)
+
+    async def go():
+        interaction = make_interaction(1)
+        read = interaction.user.display_avatar.with_format.return_value.with_size.return_value.read
+        read.side_effect = discord.DiscordException("avatar unavailable")
+        await command(bot, "profile").callback(interaction, None)
+        return interaction.followup.send.call_args.kwargs["file"]
+    assert asyncio.run(go()).filename == "profile.png"
+
+
+def test_profile_falls_back_to_text(bot, db, monkeypatch):
+    db.set_balance(1, 2500)
+    db.update_stats(1, 30, 10, [["🍒"] * 3] * 3)
+    db.update_blackjack_stats(1, 10, True)
+    embed = text_profile(bot, monkeypatch, make_interaction(1, user=make_user(1, global_name="Alice")))
     assert embed.title == "🪙 Alice"
     assert embed.description.startswith("**Rookie** · Level 1\n")
     assert [f.name for f in embed.fields] == ["💰 Wallet", "🏅 Badges (0/13)", "📊 Stats"]
     assert "2,500" in embed.fields[0].value and "Rank #1" in embed.fields[0].value
     assert "None yet" in embed.fields[1].value and "🔒 Next:" in embed.fields[1].value
-    assert "lucky symbol 🍒" in embed.fields[2].value
+    assert "Lucky symbol 🍒" in embed.fields[2].value
+    assert "**Blackjack** — 1 game ·" in embed.fields[2].value
 
 
-def test_profile_shows_level_badges_and_favorite_game(bot, db):
+def test_text_profile_shows_level_badges_and_favorite_game(bot, db, monkeypatch):
     from bot import progression
     db.set_balance(1, 500)
     for _ in range(8):  # 8 slot wins -> 8 * 15 = 120 XP -> level 2
@@ -165,17 +222,26 @@ def test_profile_shows_level_badges_and_favorite_game(bot, db):
         progression.record_game(1, "slots", 10, 30)
     progression.record_game(1, "blackjack", 10, 20, natural=True)
     db.update_blackjack_stats(1, 10, True)
-
-    async def go():
-        interaction = make_interaction(1, user=make_user(1, global_name="Alice"))
-        await command(bot, "profile").callback(interaction, None)
-        return sent_embed(interaction.response.send_message)
-    embed = asyncio.run(go())
+    embed = text_profile(bot, monkeypatch, make_interaction(1, user=make_user(1, global_name="Alice")))
     assert "Level 2" in embed.description and "35 / 200 XP" in embed.description
     assert embed.fields[1].name == "🏅 Badges (2/13)"
     assert "🍀 First Win" in embed.fields[1].value and "🃏 Natural 21" in embed.fields[1].value
     assert "Favorite game: **Slots**" in embed.fields[2].value
     assert "📅 Playing since" in embed.fields[2].value
+
+
+def test_badges_command(bot, db):
+    db.award_badges(1, ["first_win"], "2026-10-30")
+
+    async def go():
+        interaction = make_interaction(1, done=False, user=make_user(1, global_name="Alice"))
+        await command(bot, "badges").callback(interaction, None)
+        assert interaction.response.send_message.call_args.kwargs["ephemeral"] is True
+        return sent_embed(interaction.response.send_message)
+    embed = asyncio.run(go())
+    assert embed.title == "🏅 Alice's badges — 1 / 13"
+    assert "🍀 **First Win** — Win any game" in embed.description
+    assert "🔒 **Explorer**" in embed.description
 
 
 def test_announcement_once_per_server(bot):
@@ -230,15 +296,11 @@ def test_daily_reward_command(bot, db):
     asyncio.run(go())
 
 
-def test_profile_shows_active_streak(bot, db):
+def test_text_profile_shows_active_streak(bot, db, monkeypatch):
     db.claim_daily_reward(1)
     db.update_stats(1, 0, 10)
-
-    async def go():
-        interaction = make_interaction(1, done=False)
-        await command(bot, "profile").callback(interaction, None)
-        return sent_embed(interaction.response.send_message)
-    assert "🔥 1 day streak" in asyncio.run(go()).fields[0].value
+    embed = text_profile(bot, monkeypatch, make_interaction(1, done=False))
+    assert "🔥 1 day streak" in embed.fields[0].value
 
 
 def test_names_are_remembered_after_commands(bot, db):

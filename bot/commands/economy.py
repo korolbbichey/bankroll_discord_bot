@@ -2,6 +2,8 @@
 Economy commands for the BankRoll Discord Bot.
 """
 
+import asyncio
+import io
 import logging
 from datetime import datetime
 
@@ -13,9 +15,10 @@ from ..database import (
     get_balance, get_leaderboard, get_rank, get_player_count, claim_daily_reward, get_daily_streak,
     get_user_profile, transfer, save_username, get_player_progress, get_game_stats, get_badges,
 )
+from ..profile_card import CardData, render_profile_card
 from ..utils import fmt, display_name
 from ..progression import (
-    BADGES, level_progress, progress_bar, title_for_level, record_badges, send_notice,
+    BADGES, BADGES_BY_ID, level_progress, progress_bar, title_for_level, record_badges, send_notice,
 )
 
 LEADERBOARD_SIZE = 10
@@ -27,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 def streak_text(days: int) -> str:
     return f"{days} day{'s' if days != 1 else ''}"
+
+
+def games_text(count: int) -> str:
+    return f"{fmt(count)} game{'s' if count != 1 else ''}"
 
 
 def safe_badges(user_id, badge_ids: list[str], check_wealth: bool = False):
@@ -148,31 +155,16 @@ def setup(client):
         else:
             await interaction.response.send_message(embed=embed)
 
-    @client.tree.command(name="profile", description="View a player's level, badges and stats")
-    @app_commands.describe(user="The user to view (leave empty for yourself)")
-    async def profile(interaction: discord.Interaction, user: discord.User = None):
-        target = user or interaction.user
-        name = display_name(target)
-        if target.bot:
-            await interaction.response.send_message("❌ Bots don't play games.", ephemeral=True)
-            return
-
-        profile_data = get_user_profile(target.id)
-        stats_row = profile_data["stats"]
-        blackjack_row = profile_data["blackjack"]
-
-        if not stats_row and not blackjack_row:
-            await interaction.response.send_message(f"{name} hasn't played any games yet!", ephemeral=True)
-            return
-
-        games, wins, losses, total_earned, largest_win = stats_row or (0, 0, 0, 0, 0)
-        bj_wins, bj_losses, bj_total_earned, bj_largest_win = blackjack_row or (0, 0, 0, 0)
+    def profile_embed(target, profile_data) -> discord.Embed:
+        """The text version of the profile, used when the image card can't be drawn."""
+        games, wins, losses, total_earned, largest_win = profile_data["stats"] or (0, 0, 0, 0, 0)
+        bj_wins, bj_losses, bj_total_earned, bj_largest_win = profile_data["blackjack"] or (0, 0, 0, 0)
         xp, first_played = get_player_progress(target.id)
         level, xp_into_level, level_span = level_progress(xp)
         title = title_for_level(level)
 
         embed = discord.Embed(
-            title=f"{title.emoji} {name}",
+            title=f"{title.emoji} {display_name(target)}",
             description=(
                 f"**{title.name}** · Level {level}\n"
                 f"{progress_bar(xp_into_level, level_span)}  {fmt(xp_into_level)} / {fmt(level_span)} XP"
@@ -200,8 +192,8 @@ def setup(client):
         embed.add_field(name=f"🏅 Badges ({len(unlocked)}/{len(BADGES)})", value="\n".join(badge_lines), inline=False)
 
         stat_lines = [
-            f"🎰 **Slots & Coinflip** — {fmt(games)} games · {win_rate(wins, losses)} wins · best +{fmt(largest_win)}",
-            f"🃏 **Blackjack** — {fmt(bj_wins + bj_losses)} games · {win_rate(bj_wins, bj_losses)} wins · best +{fmt(bj_largest_win)}",
+            f"🎰 **Slots & Coinflip** — {games_text(games)} · {win_rate(wins, losses)} wins · best +{fmt(largest_win)}",
+            f"🃏 **Blackjack** — {games_text(bj_wins + bj_losses)} · {win_rate(bj_wins, bj_losses)} wins · best +{fmt(bj_largest_win)}",
             f"💸 Total won: **{fmt(total_earned + bj_total_earned)}** coins",
         ]
         favorites = []
@@ -210,12 +202,81 @@ def setup(client):
             favorite_game = max(game_stats, key=lambda game: game_stats[game][0])
             favorites.append(f"❤️ Favorite game: **{GAME_NAMES[favorite_game]}**")
         if profile_data["most_common_symbol"]:
-            favorites.append(f"lucky symbol {profile_data['most_common_symbol']}")
+            favorites.append(f"Lucky symbol {profile_data['most_common_symbol']}")
         if favorites:
             stat_lines.append(" · ".join(favorites))
         if first_played:
             since = datetime.strptime(first_played, "%Y-%m-%d").strftime("%b %d, %Y")
             stat_lines.append(f"📅 Playing since **{since}**")
         embed.add_field(name="📊 Stats", value="\n".join(stat_lines), inline=False)
+        return embed
 
-        await interaction.response.send_message(embed=embed)
+    def profile_card_data(target, profile_data) -> CardData:
+        games, wins, losses, _, largest_win = profile_data["stats"] or (0, 0, 0, 0, 0)
+        bj_wins, bj_losses, _, bj_largest_win = profile_data["blackjack"] or (0, 0, 0, 0)
+        level, xp_into_level, level_span = level_progress(get_player_progress(target.id)[0])
+        title = title_for_level(level)
+        return CardData(
+            name=display_name(target),
+            title=title.name,
+            accent=title.color.to_rgb(),
+            level=level,
+            xp_into_level=xp_into_level,
+            level_span=level_span,
+            balance=profile_data["balance"],
+            rank=get_rank(target.id),
+            games=games + bj_wins + bj_losses,
+            win_rate=win_rate(wins + bj_wins, losses + bj_losses),
+            best_win=max(largest_win, bj_largest_win),
+            streak=get_daily_streak(target.id),
+            earned_badges=get_badges(target.id),
+        )
+
+    async def read_avatar(target) -> bytes | None:
+        """Download the avatar for this one card. It is never stored."""
+        try:
+            return await target.display_avatar.with_format("png").with_size(256).read()
+        except (discord.DiscordException, ValueError):
+            return None
+
+    @client.tree.command(name="profile", description="View a player's level, badges and stats")
+    @app_commands.describe(user="The user to view (leave empty for yourself)")
+    async def profile(interaction: discord.Interaction, user: discord.User = None):
+        target = user or interaction.user
+        if target.bot:
+            await interaction.response.send_message("❌ Bots don't play games.", ephemeral=True)
+            return
+
+        profile_data = get_user_profile(target.id)
+        if not profile_data["stats"] and not profile_data["blackjack"]:
+            await interaction.response.send_message(f"{display_name(target)} hasn't played any games yet!", ephemeral=True)
+            return
+
+        # Downloading the avatar and drawing can take longer than Discord's 3 seconds.
+        await interaction.response.defer()
+        try:
+            data = profile_card_data(target, profile_data)
+            png = await asyncio.to_thread(render_profile_card, data, await read_avatar(target))
+        except Exception:
+            logger.exception("Failed to draw the profile card, sending text instead")
+            await interaction.followup.send(embed=profile_embed(target, profile_data))
+            return
+        await interaction.followup.send(
+            "Badge details: `/badges`",
+            file=discord.File(io.BytesIO(png), filename="profile.png"),
+        )
+
+    @client.tree.command(name="badges", description="See every badge and how to earn it")
+    @app_commands.describe(user="The user to view (leave empty for yourself)")
+    async def badges(interaction: discord.Interaction, user: discord.User = None):
+        target = user or interaction.user
+        earned = get_badges(target.id)
+        embed = discord.Embed(
+            title=f"🏅 {display_name(target)}'s badges — {len(earned & BADGES_BY_ID.keys())} / {len(BADGES)}",
+            description="\n".join(
+                f"{badge.emoji if badge.id in earned else '🔒'} **{badge.name}** — {badge.description}"
+                for badge in BADGES
+            ),
+            color=discord.Color.gold(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)

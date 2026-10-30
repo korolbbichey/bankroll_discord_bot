@@ -32,7 +32,8 @@ def build_help_embed() -> discord.Embed:
         f"`/daily_reward` — 💰 {fmt(DAILY_STREAK_REWARDS[0])}–{fmt(DAILY_STREAK_REWARDS[-1])} daily, grows with a 🔥 streak\n"
         "`/pay <user> <amount>` — send coins to a friend\n"
         "`/leaderboard` — richest players and your position\n"
-        "`/profile [user]` — level, title, badges and stats"
+        "`/profile [user]` — player card: level, title and stats\n"
+        "`/badges [user]` — every badge and how to earn it"
     ), inline=False)
     embed.add_field(name="🎰 Slot payouts (per line)", value="\n".join(
         f"{combo} — **{multiplier}x**" for combo, multiplier in SLOT_PAYOUTS.items()
