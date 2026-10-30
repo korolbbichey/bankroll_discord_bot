@@ -13,17 +13,21 @@ from discord import app_commands
 from ..config import MAX_TRANSFER, STARTING_BALANCE
 from ..database import (
     get_balance, get_leaderboard, get_rank, get_player_count, claim_daily_reward, get_daily_streak,
-    get_user_profile, transfer, save_username, get_player_progress, get_game_stats, get_badges,
+    get_leaderboard_row, get_user_profile, transfer, save_username, get_player_progress, get_game_stats, get_badges,
 )
+from ..leaderboard_card import LeaderboardEntry, render_leaderboard_card
 from ..profile_card import CardData, render_profile_card
-from ..utils import fmt, display_name
+from ..utils import fmt, display_name, avatar_hash
 from ..progression import (
-    BADGES, BADGES_BY_ID, level_progress, progress_bar, title_for_level, record_badges, send_notice,
+    BADGES, BADGES_BY_ID, level_for_xp, level_progress, progress_bar, title_for_level, record_badges, send_notice,
 )
 
 LEADERBOARD_SIZE = 10
 GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack"}
 WEEK_STREAK = 7
+AVATAR_TIMEOUT = 3  # seconds per avatar
+# Each card briefly takes about 65 MB of memory, so only a couple are drawn at once.
+CARD_SLOTS = asyncio.Semaphore(2)
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +82,7 @@ def setup(client):
                 f"❌ Not enough coins. Your balance: 💰 {fmt(get_balance(interaction.user.id))}", ephemeral=True
             )
             return
-        save_username(user.id, display_name(user))
+        save_username(user.id, display_name(user), avatar_hash(user))
         await interaction.response.send_message(
             f"💸 {interaction.user.mention} sent **{fmt(amount)}** coins to {user.mention}!\n"
             f"Your balance: 💰 {fmt(get_balance(interaction.user.id))}"
@@ -112,31 +116,26 @@ def setup(client):
         await send_notice(interaction, safe_badges(
             interaction.user.id, ["week_streak"] if claim.streak >= WEEK_STREAK else [], check_wealth=True))
 
-    @client.tree.command(name="leaderboard", description="Show the top users with the most virtual currency")
-    async def leaderboard(interaction: discord.Interaction):
-        rows = get_leaderboard(LEADERBOARD_SIZE)
-
-        if not rows:
-            await interaction.response.send_message("No currency data available yet.", ephemeral=True)
-            return
-
-        missing = [user_id for user_id, _, username in rows if not username]
-        if missing:
-            # Only players who never used a command themselves (e.g. received /pay) have no stored name.
-            await interaction.response.defer()
-        names = {}
-        for user_id in missing:
+    async def resolve_unknown_players(rows: list) -> list:
+        """
+        Look up players whose name or avatar hash isn't stored yet (e.g. they only received /pay, or haven't
+        played since avatars started being stored). Each player is only looked up once, then it comes from the database.
+        """
+        unknown = [row[0] for row in rows if not row[2] or row[3] is None]
+        for user_id in unknown:
             try:
                 user = client.get_user(user_id) or await client.fetch_user(user_id)
             except discord.HTTPException:
                 continue
-            names[user_id] = display_name(user)
-            save_username(user_id, names[user_id])
+            save_username(user_id, display_name(user), avatar_hash(user))
+        return get_leaderboard(LEADERBOARD_SIZE) if unknown else rows
 
+    def leaderboard_embed(rows: list, viewer_id: int) -> discord.Embed:
+        """The text version of the leaderboard, used when the image card can't be drawn."""
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
         lines = []
-        for i, (user_id, user_balance, username) in enumerate(rows, start=1):
-            name = discord.utils.escape_markdown(username or names.get(user_id) or "Unknown player")
+        for i, (_, user_balance, username, _, _) in enumerate(rows, start=1):
+            name = discord.utils.escape_markdown(username or "Unknown player")
             lines.append(f"{medals.get(i, f'`{i}.`')} **{name}** — {fmt(user_balance)} coins")
 
         embed = discord.Embed(
@@ -145,15 +144,60 @@ def setup(client):
             color=discord.Color.gold()
         )
         footer = f"👥 Total players: {fmt(get_player_count())}"
-        rank = get_rank(interaction.user.id)
+        rank = get_rank(viewer_id)
         if rank:
-            footer = f"Your position: #{rank} • 💰 {fmt(get_balance(interaction.user.id))}\n" + footer
+            footer = f"Your position: #{rank} • 💰 {fmt(get_balance(viewer_id))}\n" + footer
         embed.set_footer(text=footer)
+        return embed
 
-        if interaction.response.is_done():
-            await interaction.followup.send(embed=embed)
-        else:
-            await interaction.response.send_message(embed=embed)
+    async def download_avatar(user_id: int, avatar_key: str | None) -> bytes | None:
+        """Download an avatar for one card, directly from Discord's CDN. It is never stored."""
+        if not avatar_key:
+            return None
+        url = f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_key}.png?size=128"
+        try:
+            return await asyncio.wait_for(client.http.get_from_cdn(url), AVATAR_TIMEOUT)
+        except Exception:
+            return None  # a changed avatar or a slow network: the card shows the first letter instead
+
+    async def draw_leaderboard(rows: list, viewer: discord.abc.User) -> bytes:
+        viewer_row = get_leaderboard_row(viewer.id)
+        viewer_rank = get_rank(viewer.id)
+        viewer_outside = viewer_row is not None and viewer_rank > len(rows)
+
+        avatars = await asyncio.gather(*[download_avatar(row[0], row[3]) for row in rows])
+        viewer_avatar = await download_avatar(viewer.id, avatar_hash(viewer)) if viewer_outside else None
+
+        entries = [
+            LeaderboardEntry(rank, username or "Player", user_balance, level_for_xp(xp), avatar, user_id == viewer.id)
+            for rank, ((user_id, user_balance, username, _, xp), avatar) in enumerate(zip(rows, avatars), start=1)
+        ]
+        viewer_entry = None
+        if viewer_outside:
+            viewer_entry = LeaderboardEntry(viewer_rank, display_name(viewer), viewer_row[1],
+                                            level_for_xp(viewer_row[4]), viewer_avatar, True)
+
+        async with CARD_SLOTS:
+            return await asyncio.to_thread(render_leaderboard_card, entries, get_player_count(), viewer_entry)
+
+    @client.tree.command(name="leaderboard", description="Show the top users with the most virtual currency")
+    async def leaderboard(interaction: discord.Interaction):
+        rows = get_leaderboard(LEADERBOARD_SIZE)
+
+        if not rows:
+            await interaction.response.send_message("No currency data available yet.", ephemeral=True)
+            return
+
+        # Downloading avatars and drawing can take longer than Discord's 3 seconds.
+        await interaction.response.defer()
+        rows = await resolve_unknown_players(rows)
+        try:
+            png = await draw_leaderboard(rows, interaction.user)
+        except Exception:
+            logger.exception("Failed to draw the leaderboard card, sending text instead")
+            await interaction.followup.send(embed=leaderboard_embed(rows, interaction.user.id))
+            return
+        await interaction.followup.send(file=discord.File(io.BytesIO(png), filename="leaderboard.png"))
 
     def profile_embed(target, profile_data) -> discord.Embed:
         """The text version of the profile, used when the image card can't be drawn."""
@@ -256,7 +300,9 @@ def setup(client):
         await interaction.response.defer()
         try:
             data = profile_card_data(target, profile_data)
-            png = await asyncio.to_thread(render_profile_card, data, await read_avatar(target))
+            avatar = await read_avatar(target)
+            async with CARD_SLOTS:
+                png = await asyncio.to_thread(render_profile_card, data, avatar)
         except Exception:
             logger.exception("Failed to draw the profile card, sending text instead")
             await interaction.followup.send(embed=profile_embed(target, profile_data))

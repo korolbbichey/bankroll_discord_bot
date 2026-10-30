@@ -19,6 +19,11 @@ def display_name(user: discord.abc.User) -> str:
     return user.global_name or user.name
 
 
+def avatar_hash(user: discord.abc.User) -> str:
+    """The hash of the user's own avatar, or "" if they use a default one."""
+    return user.avatar.key if user.avatar else ""
+
+
 class InvalidBet(app_commands.AppCommandError):
     """A bet that isn't a number, 'all' or 'half'. The message is shown to the player."""
 

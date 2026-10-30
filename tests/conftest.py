@@ -39,6 +39,7 @@ def make_user(user_id: int, name: str = None, global_name: str = None, bot: bool
     user.global_name = global_name
     user.bot = bot
     user.mention = f"<@{user_id}>"
+    user.avatar = None
     user.display_avatar.url = "https://example.com/avatar.png"
     user.display_avatar.with_format.return_value.with_size.return_value.read = AsyncMock(return_value=None)
     return user

@@ -15,7 +15,7 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 - **Balance** (`/balance [@user]`) - Check your own or another player's coins
 - **Daily Reward** (`/daily_reward`) - Claim coins every day; consecutive days build a 🔥 streak (50 → 55 → 60 → 70 → 80 → 90 → 100 coins, configurable via `DAILY_STREAK_REWARDS`). Missing a day resets the streak
 - **Pay** (`/pay <@user> <amount>`) - Send coins to another player
-- **Leaderboard** (`/leaderboard`) - Top 10 richest players and your own position
+- **Leaderboard** (`/leaderboard`) - An image card (`bot/leaderboard_card.py`) with a podium, the top 10 and your own position. Falls back to text if drawing fails
 - **Help** (`/help`) - Command list, slot payouts and Terms of Service
 
 ### User Profiles
@@ -187,7 +187,7 @@ The tests use a temporary database and fake Discord interactions — they never 
 ## Database Schema
 
 The bot uses SQLite with these tables:
-- `currency` - User balances, daily claim tracking and cached display names (for the leaderboard)
+- `currency` - User balances, daily claim tracking, and cached display names and avatar hashes (for the leaderboard; avatar pictures are never stored)
 - `stats` - Slots and coinflip statistics
 - `blackjack_stats` - Blackjack-specific statistics
 - `symbol_counts` - Per-user slot symbol counts (for "most common symbol")

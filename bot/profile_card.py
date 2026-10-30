@@ -129,8 +129,8 @@ def _fit_name(name: str, size: int, weight: str, max_width: int) -> list[tuple[s
     return runs
 
 
-def _background() -> Image.Image:
-    width, height = WIDTH * SCALE, HEIGHT * SCALE
+def _background(height_px: int = HEIGHT) -> Image.Image:
+    width, height = WIDTH * SCALE, height_px * SCALE
     gradient = Image.linear_gradient("L").resize((width, height))
     return Image.composite(
         Image.new("RGBA", (width, height), BACKGROUND_BOTTOM + (255,)),
@@ -253,11 +253,15 @@ def render_profile_card(data: CardData, avatar_bytes: bytes | None = None) -> by
             icon = _dimmed(icon)
         card.alpha_composite(icon, (int((MARGIN + index * (icon_size + icon_gap)) * s), (badges_top + 42) * s))
 
-    # ---------- finish: shrink for smooth edges, round the corners ----------
-    final = card.resize((WIDTH, HEIGHT), Image.LANCZOS)
-    corners = Image.new("L", (WIDTH * 4, HEIGHT * 4), 0)
-    ImageDraw.Draw(corners).rounded_rectangle((0, 0, WIDTH * 4 - 1, HEIGHT * 4 - 1), radius=28 * 4, fill=255)
-    final.putalpha(corners.resize((WIDTH, HEIGHT), Image.LANCZOS))
+    return _finish(card, HEIGHT)
+
+
+def _finish(card: Image.Image, height: int) -> bytes:
+    """Shrink for smooth edges, round the corners and encode as PNG."""
+    final = card.resize((WIDTH, height), Image.LANCZOS)
+    corners = Image.new("L", (WIDTH * 4, height * 4), 0)
+    ImageDraw.Draw(corners).rounded_rectangle((0, 0, WIDTH * 4 - 1, height * 4 - 1), radius=28 * 4, fill=255)
+    final.putalpha(corners.resize((WIDTH, height), Image.LANCZOS))
 
     output = io.BytesIO()
     final.save(output, format="PNG", optimize=True)

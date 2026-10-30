@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import discord
 import pytest
@@ -110,33 +110,120 @@ def test_pay(bot, db):
     assert db.get_leaderboard(1)[0][2] == "Bob", "the recipient's name is stored too"
 
 
-def test_leaderboard_uses_stored_names_without_api_calls(bot, db):
-    db.set_balance(1, 1_234_567)
-    db.set_balance(2, 500)
-    db.save_username(1, "Alice")
-    db.save_username(2, "Bob_*")
-    bot.fetch_user = AsyncMock(side_effect=AssertionError("must not call the Discord API"))
-
+def run_leaderboard(bot, interaction):
     async def go():
-        interaction = make_interaction(2, done=False)
-        await command(bot, "leaderboard").callback(interaction)
-        return sent_embed(interaction.response.send_message)
-    embed = asyncio.run(go())
-    assert embed.description.splitlines() == ["🥇 **Alice** — 1,234,567 coins", "🥈 **Bob\\_\\*** — 500 coins"]
-    assert "Your position: #2" in embed.footer.text
-
-
-def test_leaderboard_fetches_and_stores_missing_names(bot, db):
-    db.set_balance(5, 900)
-    bot.fetch_user = AsyncMock(return_value=make_user(5, global_name="Fetched"))
-
-    async def go():
-        interaction = make_interaction(1, done=False)
         await command(bot, "leaderboard").callback(interaction)
         interaction.response.defer.assert_awaited()
-        return sent_embed(interaction.followup.send)
-    assert "Fetched" in asyncio.run(go()).description
-    assert db.get_leaderboard(1)[0][2] == "Fetched"
+        return interaction.followup.send.call_args.kwargs
+    return asyncio.run(go())
+
+
+def capture_card(monkeypatch):
+    """Replace drawing with a recorder of what would be drawn."""
+    captured = {}
+
+    def fake_render(entries, total_players, viewer):
+        captured.update(entries=entries, total_players=total_players, viewer=viewer)
+        return b"png"
+    monkeypatch.setattr(main.economy, "render_leaderboard_card", fake_render)
+    return captured
+
+
+def test_leaderboard_sends_an_image_card(bot, db):
+    db.set_balance(1, 900)
+    db.save_username(1, "Alice", "")
+    sent = run_leaderboard(bot, make_interaction(1, done=False))
+    assert sent["file"].filename == "leaderboard.png"
+    assert sent["file"].fp.read(8) == b"\x89PNG\r\n\x1a\n"
+
+
+def test_leaderboard_uses_stored_data_without_user_api_calls(bot, db, monkeypatch):
+    db.set_balance(1, 1_234_567)
+    db.set_balance(2, 500)
+    db.save_username(1, "Alice", "hash1")
+    db.save_username(2, "Bob", "")
+    bot.fetch_user = AsyncMock(side_effect=AssertionError("must not call the Discord API"))
+    cdn = AsyncMock(return_value=b"avatar-bytes")
+    monkeypatch.setattr(bot.http, "get_from_cdn", cdn)
+    captured = capture_card(monkeypatch)
+
+    run_leaderboard(bot, make_interaction(2, done=False))
+    alice, bob = captured["entries"]
+    assert (alice.rank, alice.name, alice.balance, alice.avatar, alice.is_viewer) == (1, "Alice", 1_234_567, b"avatar-bytes", False)
+    assert (bob.rank, bob.name, bob.avatar, bob.is_viewer) == (2, "Bob", None, True)
+    assert captured["viewer"] is None, "the viewer is already in the list"
+    assert captured["total_players"] == 2
+    cdn.assert_awaited_once_with("https://cdn.discordapp.com/avatars/1/hash1.png?size=128")
+
+
+def test_leaderboard_adds_a_row_for_a_viewer_outside_the_top(bot, db, monkeypatch):
+    for user_id in range(100, 112):
+        db.set_balance(user_id, 1000 + user_id)
+        db.save_username(user_id, f"P{user_id}", "")
+    db.set_balance(1, 5)
+    db.save_username(1, "Old name", "")
+    captured = capture_card(monkeypatch)
+
+    run_leaderboard(bot, make_interaction(1, done=False, user=make_user(1, global_name="Me")))
+    assert len(captured["entries"]) == 10 and [e.rank for e in captured["entries"]] == list(range(1, 11))
+    viewer = captured["viewer"]
+    assert (viewer.rank, viewer.name, viewer.balance, viewer.is_viewer) == (13, "Me", 5, True)
+
+
+def test_leaderboard_shows_levels(bot, db, monkeypatch):
+    from bot import progression
+    db.set_balance(1, 100)
+    db.save_username(1, "Alice", "")
+    for _ in range(7):
+        progression.record_game(1, "coinflip", 1, 2)  # 105 XP -> level 2
+    captured = capture_card(monkeypatch)
+    run_leaderboard(bot, make_interaction(1, done=False))
+    assert captured["entries"][0].level == 2
+
+
+def test_leaderboard_looks_up_unknown_players_once(bot, db):
+    db.set_balance(5, 900)
+    avatar = MagicMock(key="hash5")
+    user = make_user(5, global_name="Fetched")
+    user.avatar = avatar
+    bot.fetch_user = AsyncMock(return_value=user)
+
+    run_leaderboard(bot, make_interaction(1, done=False))
+    run_leaderboard(bot, make_interaction(1, done=False))
+    bot.fetch_user.assert_awaited_once()
+    assert db.get_leaderboard(1)[0][2:4] == ("Fetched", "hash5")
+
+
+def test_failed_avatar_download_does_not_stop_the_card(bot, db, monkeypatch):
+    db.set_balance(1, 900)
+    db.save_username(1, "Alice", "gone")
+    monkeypatch.setattr(bot.http, "get_from_cdn", AsyncMock(side_effect=OSError("404")))
+    captured = capture_card(monkeypatch)
+    run_leaderboard(bot, make_interaction(2, done=False))
+    assert captured["entries"][0].avatar is None
+
+
+def test_leaderboard_falls_back_to_text(bot, db, monkeypatch):
+    db.set_balance(1, 1_234_567)
+    db.set_balance(2, 500)
+    db.save_username(1, "Alice", "")
+    db.save_username(2, "Bob_*", "")
+
+    def broken(*args):
+        raise OSError("no font")
+    monkeypatch.setattr(main.economy, "render_leaderboard_card", broken)
+
+    embed = run_leaderboard(bot, make_interaction(2, done=False))["embed"]
+    assert embed.description.splitlines() == ["🥇 **Alice** — 1,234,567 coins", "🥈 **Bob\\_\\*** — 500 coins"]
+    assert "Your position: #2" in embed.footer.text and "Total players: 2" in embed.footer.text
+
+
+def test_leaderboard_card_draws_any_number_of_players():
+    from bot.leaderboard_card import LeaderboardEntry, render_leaderboard_card
+    for count in (1, 2, 3, 4, 10):
+        entries = [LeaderboardEntry(i, "小熊维尼" if i == 1 else "A" * 80, 10 ** 12, 999) for i in range(1, count + 1)]
+        png = render_leaderboard_card(entries, count, LeaderboardEntry(99, "Me", 1, 1, is_viewer=True))
+        assert png.startswith(b"\x89PNG")
 
 
 def text_profile(bot, monkeypatch, interaction):
@@ -313,7 +400,7 @@ def test_names_are_remembered_after_commands(bot, db):
         await bot.on_app_command_completion(make_interaction(user=user, guild_id=None), None)
     asyncio.run(go())
     assert db.get_leaderboard(1)[0][2] == "Second"
-    assert bot.known_names[1] == "Second"
+    assert bot.known_names[1] == ("Second", "")
 
 
 def test_help_embed_lists_payouts(bot):

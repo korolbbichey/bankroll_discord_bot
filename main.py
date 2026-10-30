@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 # Import bot modules
 from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
 from bot.database import init_db, mark_announcement_shown, save_username
-from bot.utils import display_name, InvalidBet
+from bot.utils import display_name, avatar_hash, InvalidBet
 from bot.commands import economy, admin, general
 from bot.games import slots, blackjack, coinflip
 
@@ -50,7 +50,7 @@ class BankRollBot(commands.Bot):
             allowed_installs=app_commands.AppInstallationType(guild=True, user=True),
             allowed_contexts=app_commands.AppCommandContext(guild=True, dm_channel=True, private_channel=True),
         )
-        self.known_names: dict[int, str] = {}
+        self.known_names: dict[int, tuple[str, str]] = {}
 
     async def setup_hook(self):
         """Register and sync commands once at startup (on_ready can fire on every reconnect)."""
@@ -78,13 +78,13 @@ class BankRollBot(commands.Bot):
         await self.maybe_announce(interaction)
 
     def remember_name(self, user: discord.abc.User):
-        """Keep the player's display name in the database for the leaderboard (DB write only when it changes)."""
-        name = display_name(user)
-        if self.known_names.get(user.id) == name:
+        """Keep the player's name and avatar hash in the database for the leaderboard (DB write only when they change)."""
+        known = (display_name(user), avatar_hash(user))
+        if self.known_names.get(user.id) == known:
             return
         try:
-            if save_username(user.id, name):
-                self.known_names[user.id] = name
+            if save_username(user.id, *known):
+                self.known_names[user.id] = known
         except Exception:
             logger.exception("Failed to save username")
 

@@ -125,7 +125,9 @@ def test_leaderboard_includes_saved_usernames(db):
     db.set_balance(1, 300)
     db.set_balance(2, 100)
     assert db.save_username(1, "Alice")
-    assert db.get_leaderboard(10) == [(1, 300, "Alice"), (2, 100, None)]
+    assert db.get_leaderboard(10) == [(1, 300, "Alice", None, 0), (2, 100, None, None, 0)]
+    assert db.get_leaderboard_row(1) == (1, 300, "Alice", None, 0)
+    assert db.get_leaderboard_row(99) is None
 
 
 def test_save_username_needs_account_and_only_writes_changes(db):
@@ -135,6 +137,12 @@ def test_save_username_needs_account_and_only_writes_changes(db):
     assert db.save_username(42, "Ghost")
     db.save_username(42, "Renamed")
     assert db.get_leaderboard(1)[0][2] == "Renamed"
+    db.save_username(42, "Renamed", "abc123")
+    assert db.get_leaderboard(1)[0][3] == "abc123"
+    db.save_username(42, "Renamed")
+    assert db.get_leaderboard(1)[0][3] == "abc123", "None keeps the stored hash"
+    db.save_username(42, "Renamed", "")
+    assert db.get_leaderboard(1)[0][3] == "", "no custom avatar"
 
 
 def test_announcement_shown_once_per_target_and_id(db):

@@ -80,6 +80,9 @@ def init_db():
             cursor.execute("ALTER TABLE currency ADD COLUMN username TEXT")
         if "daily_streak" not in currency_columns:
             cursor.execute("ALTER TABLE currency ADD COLUMN daily_streak INTEGER DEFAULT 0")
+        # Only the hash that identifies the avatar on Discord's CDN, never the picture. NULL = not known yet.
+        if "avatar_hash" not in currency_columns:
+            cursor.execute("ALTER TABLE currency ADD COLUMN avatar_hash TEXT")
 
         # The clown symbol was removed from the slots.
         cursor.execute("DELETE FROM symbol_counts WHERE symbol = ?", ("\U0001f921",))
@@ -208,28 +211,43 @@ def get_player_count() -> int:
         return cursor.fetchone()[0]
 
 
-def get_leaderboard(limit: int = 5) -> list[tuple[int, int, str | None]]:
-    """Get top users by balance as (user_id, balance, username). Ties keep a stable order."""
+_LEADERBOARD_COLUMNS = """
+    SELECT c.user_id, c.balance, c.username, c.avatar_hash, COALESCE(p.xp, 0)
+    FROM currency c LEFT JOIN players p ON p.user_id = c.user_id
+"""
+
+
+def get_leaderboard(limit: int = 5) -> list[tuple[int, int, str | None, str | None, int]]:
+    """Top users by balance as (user_id, balance, username, avatar_hash, xp). Ties keep a stable order."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT user_id, balance, username FROM currency ORDER BY balance DESC, user_id LIMIT ?",
-                       (limit,))
+        cursor.execute(_LEADERBOARD_COLUMNS + " ORDER BY c.balance DESC, c.user_id LIMIT ?", (limit,))
         return cursor.fetchall()
 
 
-def save_username(user_id, username: str) -> bool:
+def get_leaderboard_row(user_id) -> tuple[int, int, str | None, str | None, int] | None:
+    """The same row as get_leaderboard, for one user. None if they have no account."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(_LEADERBOARD_COLUMNS + " WHERE c.user_id = ?", (user_id,))
+        return cursor.fetchone()
+
+
+def save_username(user_id, username: str, avatar_hash: str | None = None) -> bool:
     """
-    Store the user's display name if they have an account. Only writes when the name changed.
-    Returns False if the user has no account yet.
+    Store the user's display name and avatar hash ("" = no custom avatar, None = leave as is)
+    if they have an account. Only writes when something changed. Returns False if there is no account yet.
     """
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT username FROM currency WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT username, avatar_hash FROM currency WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         if row is None:
             return False
-        if row[0] != username:
-            cursor.execute("UPDATE currency SET username = ? WHERE user_id = ?", (username, user_id))
+        new_hash = row[1] if avatar_hash is None else avatar_hash
+        if (row[0], row[1]) != (username, new_hash):
+            cursor.execute("UPDATE currency SET username = ?, avatar_hash = ? WHERE user_id = ?",
+                           (username, new_hash, user_id))
         return True
 
 
