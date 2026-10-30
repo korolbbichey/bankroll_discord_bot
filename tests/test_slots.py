@@ -9,7 +9,7 @@ from PIL import Image
 from bot.config import SLOT_SYMBOLS, SYMBOL_WEIGHTS, SLOT_PAYOUTS, STARTING_BALANCE, MIN_BET, MAX_BET
 from bot.games import slots
 from bot.games.slots import calculate_winnings, find_winning_lines, line_cells, SlotView
-from bot.slots_gif import animation_seconds, render_spin_gif
+from bot.slots_gif import CELL, REELS_BOTTOM, REELS_LEFT, REELS_TOP, animation_seconds, render_spin_gif
 
 from conftest import make_interaction, sent_embed
 
@@ -188,7 +188,7 @@ def test_gif_shows_the_same_symbols_when_the_reels_stop():
     """The last spinning frame has to match the final grid: no jump between animation and result."""
     grid = [[LEMON, CHERRY, BELL], [STAR, MELON, DIAMOND], [CHERRY, BELL, LEMON]]
     gif = Image.open(io.BytesIO(render_spin_gif(grid, set(), 10, 0, seed=1)))
-    window = (60, 24, 360, 324)
+    window = (REELS_LEFT, REELS_TOP, REELS_LEFT + 3 * CELL, REELS_BOTTOM)
     gif.seek(gif.n_frames - 2)  # identical frames get merged, so count from the end
     spinning = gif.convert("RGB").crop(window)
     gif.seek(gif.n_frames - 1)
