@@ -95,5 +95,6 @@ def validate_bet(bet: int, balance: int) -> tuple[bool, str]:
     if bet > MAX_BET:
         return False, f"Maximum bet is {fmt(MAX_BET)} coins."
     if bet > balance:
-        return False, f"You don't have enough coins for that bet (balance: {fmt(balance)})."
+        hint = " Try `/daily_reward` or `/bailout`." if balance < MIN_BET else ""
+        return False, f"You don't have enough coins for that bet (balance: {fmt(balance)}).{hint}"
     return True, ""

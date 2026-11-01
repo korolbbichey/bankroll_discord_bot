@@ -229,32 +229,37 @@ class BlackjackView(discord.ui.View):
                 pass
 
 
+async def start_blackjack(interaction: discord.Interaction, bet: int):
+    """Start a game from a command or a button."""
+    user_id = interaction.user.id
+    is_valid, error_msg = validate_bet(bet, get_balance(user_id))
+    if not is_valid or not try_debit(user_id, bet):
+        await interaction.response.send_message(f"❌ {error_msg or 'You do not have enough balance for that bet.'}", ephemeral=True)
+        return
+
+    view = BlackjackView(user_id, bet)
+    view.last_interaction = interaction
+    try:
+        embed = view.check_naturals()
+        if embed is None:
+            if bet > get_balance(user_id):
+                view.double.disabled = True
+            embed = view.playing_embed()
+        await interaction.response.defer(thinking=True)
+        await view.show(interaction, embed)
+        await send_notice(interaction, view.progress)
+    except Exception:
+        if not view.settled:
+            view.stop()
+            credit(user_id, bet)
+            logger.exception("Blackjack failed to start, bet refunded")
+        raise
+
+
 def setup(client):
     """Setup blackjack command."""
 
     @client.tree.command(name="blackjack", description="Play a game of Blackjack with a bet")
     @app_commands.describe(bet="Coins to bet: a number, all or half")
     async def blackjack(interaction: discord.Interaction, bet: Bet):
-        user_id = interaction.user.id
-        is_valid, error_msg = validate_bet(bet, get_balance(user_id))
-        if not is_valid or not try_debit(user_id, bet):
-            await interaction.response.send_message(f"❌ {error_msg or 'You do not have enough balance for that bet.'}", ephemeral=True)
-            return
-
-        view = BlackjackView(user_id, bet)
-        view.last_interaction = interaction
-        try:
-            embed = view.check_naturals()
-            if embed is None:
-                if bet > get_balance(user_id):
-                    view.double.disabled = True
-                embed = view.playing_embed()
-            await interaction.response.defer()
-            await view.show(interaction, embed)
-            await send_notice(interaction, view.progress)
-        except Exception:
-            if not view.settled:
-                view.stop()
-                credit(user_id, bet)
-                logger.exception("Blackjack failed to start, bet refunded")
-            raise
+        await start_blackjack(interaction, bet)

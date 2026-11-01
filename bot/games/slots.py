@@ -192,18 +192,23 @@ class SlotView(discord.ui.View):
         await send_notice(interaction, progress)
 
 
+async def start_slots(interaction: discord.Interaction, bet: int):
+    """Start a game from a command or a button."""
+    user_id = interaction.user.id
+    is_valid, error_msg = validate_bet(bet, get_balance(user_id))
+    if not is_valid:
+        await interaction.response.send_message(f"❌ {error_msg}", ephemeral=True)
+        return
+
+    view = SlotView(user_id, bet)
+    await interaction.response.send_message("🎰 Spinning...")
+    await view.spin(interaction)
+
+
 def setup(client):
     """Setup slots command."""
 
     @client.tree.command(name="slots", description="Play a slot machine with a bet")
     @app_commands.describe(bet="Coins to bet: a number, all or half")
     async def slots(interaction: discord.Interaction, bet: Bet):
-        user_id = interaction.user.id
-        is_valid, error_msg = validate_bet(bet, get_balance(user_id))
-        if not is_valid:
-            await interaction.response.send_message(f"❌ {error_msg}", ephemeral=True)
-            return
-
-        view = SlotView(user_id, bet)
-        await interaction.response.send_message("🎰 Spinning...")
-        await view.spin(interaction)
+        await start_slots(interaction, bet)

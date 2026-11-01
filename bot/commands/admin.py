@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 
 from ..config import OWNER_IDS, ADMIN_GUILD_ID
-from ..database import credit, try_debit, get_balance, set_balance
+from ..database import credit, try_debit, get_balance, get_bot_stats, set_balance
 from ..utils import fmt
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,35 @@ def setup(client):
         set_balance(user.id, amount)
         logger.info("%s set balance of %s to %d", interaction.user, user.id, amount)
         await interaction.response.send_message(f"✅ {user.mention}'s balance is now 💰 {fmt(amount)}", ephemeral=True)
+
+    @admin.command(name="stats", description="Players, retention, popular games and the biggest coin movements")
+    async def stats(interaction: discord.Interaction):
+        data = get_bot_stats()
+        embed = discord.Embed(title="📊 Bankroll stats", color=discord.Color.blurple())
+
+        rate = f"{data['returned'] / data['cohort'] * 100:.0f}%" if data["cohort"] else "—"
+        embed.add_field(name="👥 Players", value=(
+            f"Accounts: **{fmt(data['accounts'])}**\n"
+            f"Never played a game: **{fmt(data['never_played'])}**\n"
+            f"New players who came back later: **{rate}** ({data['returned']} of {data['cohort']}, last 7 days)"
+        ), inline=False)
+
+        embed.add_field(name="📅 Last 7 days (UTC)", value="\n".join(
+            f"`{d['day'][5:]}` new **{d['new']}** · active **{d['active']}** · games **{fmt(d['games'])}**"
+            for d in data["days"]
+        ), inline=False)
+
+        embed.add_field(name="🎮 Games, all time", value="\n".join(
+            f"{game}: **{fmt(total)}** games · {fmt(players)} players · players' net {net:+,}"
+            for game, total, players, net in data["games"]
+        ) or "No data yet", inline=False)
+
+        embed.add_field(name="💰 Biggest coin movements", value="\n".join(
+            f"`{at[5:]}` {name or user_id} — {kind} **+{fmt(amount)}**" + (f" ({detail})" if detail else "")
+            for at, user_id, name, kind, amount, detail in data["events"]
+        ) or "None logged yet", inline=False)
+        embed.set_footer(text="Activity and coin movements are recorded from this update onward.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def owner_only(interaction: discord.Interaction) -> bool:
         # A False result raises CheckFailure, which the tree error handler reports to the user.

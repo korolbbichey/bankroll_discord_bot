@@ -33,6 +33,13 @@ DAILY_REWARD = 50
 # after the last entry the reward stays at the maximum. Missing a day resets the streak.
 DAILY_STREAK_REWARDS = [DAILY_REWARD, 55, 60, 70, 80, 90, 100]
 STARTING_BALANCE = 100
+# Help for players who ran out of coins: once per UTC day, only with an empty balance.
+BAILOUT_AMOUNT = 25
+# Bet used by the quick-play buttons under the daily reward.
+QUICK_PLAY_BET = 10
+# Wins and transfers of at least this size are logged, so /admin stats can show where big balances came from.
+COIN_EVENT_MIN = 1000
+DUEL_TIMEOUT = 120  # seconds to accept a duel
 MAX_TRANSFER = 1_000_000
 
 # Progression: XP per finished game (any game) and bonus XP for a win.

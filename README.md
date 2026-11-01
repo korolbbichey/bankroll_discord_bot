@@ -15,6 +15,8 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 - **Balance** (`/balance [@user]`) - Check your own or another player's coins
 - **Daily Reward** (`/daily_reward`) - Claim coins every day; consecutive days build a 🔥 streak (50 → 55 → 60 → 70 → 80 → 90 → 100 coins, configurable via `DAILY_STREAK_REWARDS`). Missing a day resets the streak
 - **Pay** (`/pay <@user> <amount>`) - Send coins to another player
+- **Duel** (`/duel <@user> <bet>`) - Challenge a player to a coin flip; the winner takes both bets
+- **Bailout** (`/bailout`) - 25 coins for an empty wallet, once per UTC day
 - **Leaderboard** (`/leaderboard`) - An image card (`bot/leaderboard_card.py`) with a podium, the top 10 and your own position. Falls back to text if drawing fails
 - **Help** (`/help`) - Command list, slot payouts and Terms of Service
 
@@ -33,6 +35,7 @@ Balances are shared across every server, so admin commands are restricted to the
 - `/admin give <user> <amount>` - add coins to a player
 - `/admin take <user> <amount>` - remove coins from a player
 - `/admin set <user> <amount>` - set an exact balance
+- `/admin stats` - players, retention, popular games and the biggest coin movements
 
 ## Project Structure
 

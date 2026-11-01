@@ -10,10 +10,13 @@ from datetime import datetime
 import discord
 from discord import app_commands
 
-from ..config import MAX_TRANSFER, STARTING_BALANCE
+from ..config import BAILOUT_AMOUNT, MAX_TRANSFER, MIN_BET, QUICK_PLAY_BET, STARTING_BALANCE
+from ..games.blackjack import start_blackjack
+from ..games.coinflip import start_coinflip
+from ..games.slots import start_slots
 from ..database import (
     get_balance, get_leaderboard, get_rank, get_player_count, claim_daily_reward, get_daily_streak,
-    get_leaderboard_row, get_user_profile, transfer, save_username, get_player_progress, get_game_stats, get_badges,
+    claim_bailout, get_leaderboard_row, get_user_profile, record_coin_event, transfer, save_username, get_player_progress, get_game_stats, get_badges,
 )
 from ..leaderboard_card import LeaderboardEntry, render_leaderboard_card
 from ..profile_card import CardData, render_profile_card
@@ -23,7 +26,7 @@ from ..progression import (
 )
 
 LEADERBOARD_SIZE = 10
-GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack"}
+GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack", "duel": "Duels"}
 WEEK_STREAK = 7
 AVATAR_TIMEOUT = 3  # seconds per avatar
 
@@ -50,6 +53,29 @@ def safe_badges(user_id, badge_ids: list[str], check_wealth: bool = False):
 def win_rate(wins: int, losses: int) -> str:
     decided = wins + losses
     return f"{wins / decided * 100:.0f}%" if decided else "—"
+
+
+class QuickPlayView(discord.ui.View):
+    """One-click games with a small bet, so a new player doesn't have to learn the commands first."""
+
+    def __init__(self):
+        super().__init__(timeout=600)
+
+    @staticmethod
+    def quick_bet(user_id: int) -> int:
+        return max(MIN_BET, min(QUICK_PLAY_BET, get_balance(user_id)))
+
+    @discord.ui.button(label="🎰 Spin", style=discord.ButtonStyle.success)
+    async def spin(self, interaction: discord.Interaction, _):
+        await start_slots(interaction, self.quick_bet(interaction.user.id))
+
+    @discord.ui.button(label="🪙 Flip heads", style=discord.ButtonStyle.primary)
+    async def flip(self, interaction: discord.Interaction, _):
+        await start_coinflip(interaction, "heads", self.quick_bet(interaction.user.id))
+
+    @discord.ui.button(label="🃏 Blackjack", style=discord.ButtonStyle.primary)
+    async def blackjack(self, interaction: discord.Interaction, _):
+        await start_blackjack(interaction, self.quick_bet(interaction.user.id))
 
 
 def setup(client):
@@ -81,11 +107,25 @@ def setup(client):
             )
             return
         save_username(user.id, display_name(user), avatar_hash(user))
+        record_coin_event(user.id, "pay", amount, f"from {interaction.user.id}")
         await interaction.response.send_message(
             f"💸 {interaction.user.mention} sent **{fmt(amount)}** coins to {user.mention}!\n"
             f"Your balance: 💰 {fmt(get_balance(interaction.user.id))}"
         )
         await send_notice(interaction, safe_badges(interaction.user.id, ["generous"]))
+
+    @client.tree.command(name="bailout", description=f"Out of coins? Get {BAILOUT_AMOUNT} coins, once a day")
+    async def bailout(interaction: discord.Interaction):
+        status, user_balance = claim_bailout(interaction.user.id)
+        if status == "has_coins":
+            await interaction.response.send_message(
+                f"❌ Bailouts are only for empty wallets. You still have 💰 {fmt(user_balance)}.", ephemeral=True)
+        elif status == "already_claimed":
+            await interaction.response.send_message(
+                "❌ You already got a bailout today. Try `/daily_reward`, or come back after 00:00 UTC.", ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                f"🛟 Here's 💰 **{fmt(BAILOUT_AMOUNT)}** to get you back in the game!", ephemeral=True, view=QuickPlayView())
 
     @client.tree.command(name="daily_reward", description="Claim your daily reward — keep a streak for bigger rewards")
     async def daily_reward(interaction: discord.Interaction):
@@ -101,7 +141,7 @@ def setup(client):
             )
             embed.add_field(name="🔥 Streak", value=streak_text(claim.streak), inline=True)
             embed.add_field(name="💰 Balance", value=fmt(claim.balance), inline=True)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed, ephemeral=True, view=QuickPlayView())
             return
 
         embed = discord.Embed(title=f"🎁 +{fmt(claim.reward)} coins!", color=discord.Color.green())
@@ -110,7 +150,7 @@ def setup(client):
         embed.add_field(name="🔥 Streak", value=streak_text(claim.streak), inline=True)
         embed.add_field(name="💰 Balance", value=fmt(claim.balance), inline=True)
         embed.set_footer(text=f"Come back in {wait} for {fmt(claim.next_reward)} coins. Miss a day and the streak resets.")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True, view=QuickPlayView())
         await send_notice(interaction, safe_badges(
             interaction.user.id, ["week_streak"] if claim.streak >= WEEK_STREAK else [], check_wealth=True))
 
@@ -258,6 +298,10 @@ def setup(client):
         bj_wins, bj_losses, _, bj_largest_win = profile_data["blackjack"] or (0, 0, 0, 0)
         level, xp_into_level, level_span = level_progress(get_player_progress(target.id)[0])
         title = title_for_level(level)
+        duel_games, duel_wins, _ = get_game_stats(target.id).get("duel", (0, 0, 0))
+        games += duel_games
+        wins += duel_wins
+        losses += duel_games - duel_wins
         return CardData(
             name=display_name(target),
             title=title.name,
@@ -290,7 +334,7 @@ def setup(client):
             return
 
         profile_data = get_user_profile(target.id)
-        if not profile_data["stats"] and not profile_data["blackjack"]:
+        if not profile_data["stats"] and not profile_data["blackjack"] and not get_game_stats(target.id):
             await interaction.response.send_message(f"{display_name(target)} hasn't played any games yet!", ephemeral=True)
             return
 

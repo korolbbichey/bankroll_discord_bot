@@ -193,14 +193,19 @@ def _caption(frame: Image.Image, text: str, color: tuple[int, int, int], size: i
     draw.text(center, text, font=_font(size), fill=color, anchor="mm")
 
 
-def render_flip_gif(outcome: str, guess: str, bet: int, seed: int | None = None) -> bytes:
-    """Draw a flip that lands on outcome ('heads' or 'tails'). Winning pays double the bet."""
+def render_flip_gif(outcome: str, guess: str, bet: int, seed: int | None = None, caption: str | None = None,
+                    result_text: str | None = None, result_text_color: tuple[int, int, int] | None = None) -> bytes:
+    """
+    Draw a flip that lands on outcome ('heads' or 'tails'). Winning pays double the bet.
+    caption and result_text replace the default texts (used by duels, which have no single player's guess).
+    """
     rng = random.Random(seed)
     other = "tails" if outcome == "heads" else "heads"
-    won = guess == outcome
-    chosen = f"YOU CHOSE {guess.upper()}"
-    result = f"YOU WON +{bet:,}" if won else f"YOU LOST {bet:,}"
-    result_color = GREEN if won else RED
+    custom = result_text is not None
+    won = guess == outcome and not custom
+    chosen = caption or f"YOU CHOSE {guess.upper()}"
+    result = result_text or (f"YOU WON +{bet:,}" if won else f"YOU LOST {bet:,}")
+    result_color = result_text_color or (GREEN if won else RED)
     frames, durations = [], []
 
     # The flip: whole turns, so it lands showing the outcome

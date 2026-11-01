@@ -11,7 +11,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from .config import DB_FILE, STARTING_BALANCE, DAILY_STREAK_REWARDS, XP_PER_GAME, XP_PER_WIN
+from .config import (
+    DB_FILE, STARTING_BALANCE, DAILY_STREAK_REWARDS, XP_PER_GAME, XP_PER_WIN, BAILOUT_AMOUNT, COIN_EVENT_MIN,
+)
 
 
 @contextmanager
@@ -83,6 +85,23 @@ def init_db():
         # Only the hash that identifies the avatar on Discord's CDN, never the picture. NULL = not known yet.
         if "avatar_hash" not in currency_columns:
             cursor.execute("ALTER TABLE currency ADD COLUMN avatar_hash TEXT")
+        if "last_bailout" not in currency_columns:
+            cursor.execute("ALTER TABLE currency ADD COLUMN last_bailout TEXT")
+
+        # ---- Statistics for the bot owner ----
+        cursor.execute('''CREATE TABLE IF NOT EXISTS player_days (
+            day TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            games INTEGER DEFAULT 0,
+            PRIMARY KEY (day, user_id)
+        )''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS coin_events (
+            at TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            detail TEXT
+        )''')
 
         # The clown symbol was removed from the slots.
         cursor.execute("DELETE FROM symbol_counts WHERE symbol = ?", ("\U0001f921",))
@@ -316,6 +335,28 @@ def get_daily_streak(user_id, now: datetime | None = None) -> int:
     return (row[1] or 0) if row and row[0] in active_dates else 0
 
 
+def claim_bailout(user_id, now: datetime | None = None) -> tuple[str, int]:
+    """
+    Give BAILOUT_AMOUNT to a player with an empty balance, once per UTC day.
+    Returns (status, balance): status is 'ok', 'has_coins' or 'already_claimed'.
+    """
+    today = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%d")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        _ensure_account(cursor, user_id)
+        # All the conditions are in one statement, so simultaneous claims can't both succeed.
+        cursor.execute("""
+            UPDATE currency SET balance = balance + ?, last_bailout = ?
+            WHERE user_id = ? AND balance <= 0 AND (last_bailout IS NULL OR last_bailout != ?)
+        """, (BAILOUT_AMOUNT, today, user_id, today))
+        claimed = cursor.rowcount == 1
+        cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,))
+        balance = cursor.fetchone()[0]
+    if claimed:
+        return "ok", balance
+    return ("has_coins" if balance > 0 else "already_claimed"), balance
+
+
 def mark_announcement_shown(target_id, announcement_id: str) -> bool:
     """Record that this announcement was shown to a server (or user). Returns True only the first time."""
     with get_connection() as conn:
@@ -427,6 +468,12 @@ def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, to
                 wins = wins + excluded.wins,
                 net = net + excluded.net
         """, (user_id, game, int(won), net))
+        cursor.execute("""
+            INSERT INTO player_days (day, user_id, games) VALUES (?, ?, 1)
+            ON CONFLICT(day, user_id) DO UPDATE SET games = games + 1
+        """, (today, user_id))
+    if game != "duel" and net >= COIN_EVENT_MIN:  # duels log themselves, with the opponent
+        record_coin_event(user_id, game, net)
     return xp_before, xp_before + xp_gain
 
 
@@ -465,3 +512,59 @@ def get_badges(user_id) -> set[str]:
         cursor = conn.cursor()
         cursor.execute("SELECT badge FROM badges WHERE user_id = ?", (user_id,))
         return {row[0] for row in cursor.fetchall()}
+
+
+# ============== Owner Statistics ==============
+
+def record_coin_event(user_id, kind: str, amount: int, detail: str = ""):
+    """Log a big win or transfer. Small amounts are ignored to keep the table small."""
+    if amount < COIN_EVENT_MIN:
+        return
+    with get_connection() as conn:
+        conn.execute("INSERT INTO coin_events (at, user_id, kind, amount, detail) VALUES (?, ?, ?, ?, ?)",
+                     (datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), user_id, kind, amount, detail))
+
+
+def get_bot_stats(now: datetime | None = None, days: int = 7) -> dict:
+    """Numbers for /admin stats. Daily activity is only known from the day this table was added."""
+    now = now or datetime.now(timezone.utc)
+    day_names = [(now - timedelta(days=offset)).strftime("%Y-%m-%d") for offset in range(days)]
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        one = lambda query, *args: cursor.execute(query, args).fetchone()[0]  # noqa: E731
+
+        per_day = []
+        for day in day_names:
+            per_day.append({
+                "day": day,
+                "active": one("SELECT COUNT(*) FROM player_days WHERE day = ?", day),
+                "games": one("SELECT COALESCE(SUM(games), 0) FROM player_days WHERE day = ?", day),
+                "new": one("SELECT COUNT(*) FROM players WHERE first_played = ?", day),
+            })
+
+        # Of the players whose first game was at least a day ago (within the period), how many played on a later day?
+        cohort = one("SELECT COUNT(*) FROM players WHERE first_played >= ? AND first_played < ?", day_names[-1], day_names[0])
+        returned = one("""
+            SELECT COUNT(*) FROM players p
+            WHERE p.first_played >= ? AND p.first_played < ?
+              AND EXISTS (SELECT 1 FROM player_days d WHERE d.user_id = p.user_id AND d.day > p.first_played)
+        """, day_names[-1], day_names[0])
+
+        return {
+            "days": per_day,
+            "accounts": one("SELECT COUNT(*) FROM currency"),
+            "never_played": one("""
+                SELECT COUNT(*) FROM currency c
+                WHERE NOT EXISTS (SELECT 1 FROM players p WHERE p.user_id = c.user_id)
+            """),
+            "cohort": cohort,
+            "returned": returned,
+            "games": cursor.execute(
+                "SELECT game, SUM(games), COUNT(*), SUM(net) FROM game_stats GROUP BY game ORDER BY SUM(games) DESC"
+            ).fetchall(),
+            "events": cursor.execute("""
+                SELECT e.at, e.user_id, c.username, e.kind, e.amount, e.detail
+                FROM coin_events e LEFT JOIN currency c ON c.user_id = e.user_id
+                ORDER BY e.amount DESC LIMIT 8
+            """).fetchall(),
+        }

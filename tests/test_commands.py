@@ -17,7 +17,7 @@ def bot():
     """A bot with every command registered, never connected to Discord."""
     async def build():
         client = main.BankRollBot()
-        for module in (main.economy, main.admin, main.general, main.slots, main.blackjack, main.coinflip):
+        for module in (main.economy, main.admin, main.general, main.slots, main.blackjack, main.coinflip, main.duel):
             module.setup(client)
         return client
     return asyncio.run(build())
@@ -29,7 +29,7 @@ def command(bot, name):
 
 def test_public_commands_are_registered(bot):
     names = sorted(c.name for c in bot.tree.get_commands())
-    assert names == ["badges", "balance", "blackjack", "coinflip", "daily_reward", "help", "leaderboard", "pay", "profile", "slots"]
+    assert names == ["badges", "bailout", "balance", "blackjack", "coinflip", "daily_reward", "duel", "help", "leaderboard", "pay", "profile", "slots"]
 
 
 def test_public_commands_support_user_install_everywhere(bot):

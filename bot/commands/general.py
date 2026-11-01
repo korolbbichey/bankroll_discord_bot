@@ -4,7 +4,7 @@ General commands for the BankRoll Discord Bot.
 
 import discord
 
-from ..config import SLOT_PAYOUTS, DAILY_STREAK_REWARDS, MIN_BET, MAX_BET
+from ..config import BAILOUT_AMOUNT, SLOT_PAYOUTS, DAILY_STREAK_REWARDS, MIN_BET, MAX_BET
 from ..utils import fmt
 
 TOS_URL = "https://gist.github.com/korolbbichey/ec9757512835365e37c3c8823d096ccb"
@@ -25,11 +25,13 @@ def build_help_embed() -> discord.Embed:
         "`/slots <bet>` — 3x3 slot machine, every line pays\n"
         "`/blackjack <bet>` — Hit, Stand or Double down\n"
         "`/coinflip <guess> <bet>` — guess right to double your bet\n"
+        "`/duel <user> <bet>` — challenge a friend, the winner takes both bets\n"
         f"`<bet>`: {fmt(MIN_BET)}–{fmt(MAX_BET)} coins, or `all` / `half` of your balance"
     ), inline=False)
     embed.add_field(name="💰 Economy", value=(
         "`/balance [user]` — check a balance\n"
         f"`/daily_reward` — 💰 {fmt(DAILY_STREAK_REWARDS[0])}–{fmt(DAILY_STREAK_REWARDS[-1])} daily, grows with a 🔥 streak\n"
+        f"`/bailout` — out of coins? Get 💰 {fmt(BAILOUT_AMOUNT)}, once a day\n"
         "`/pay <user> <amount>` — send coins to a friend\n"
         "`/leaderboard` — richest players and your position\n"
         "`/profile [user]` — player card: level, title and stats\n"

@@ -16,7 +16,7 @@ from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
 from bot.database import init_db, mark_announcement_shown, save_username
 from bot.utils import display_name, avatar_hash, InvalidBet
 from bot.commands import economy, admin, general
-from bot.games import slots, blackjack, coinflip
+from bot.games import slots, blackjack, coinflip, duel
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -61,6 +61,7 @@ class BankRollBot(commands.Bot):
         slots.setup(self)
         blackjack.setup(self)
         coinflip.setup(self)
+        duel.setup(self)
 
         self.tree.on_error = self.on_app_command_error
 
