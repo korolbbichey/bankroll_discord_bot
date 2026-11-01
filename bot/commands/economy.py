@@ -110,7 +110,8 @@ def setup(client):
         record_coin_event(user.id, "pay", amount, f"from {interaction.user.id}")
         await interaction.response.send_message(
             f"💸 {interaction.user.mention} sent **{fmt(amount)}** coins to {user.mention}!\n"
-            f"Your balance: 💰 {fmt(get_balance(interaction.user.id))}"
+            f"{display_name(interaction.user)}'s balance: 💰 {fmt(get_balance(interaction.user.id))}\n"
+            f"{display_name(user)}'s balance: 💰 {fmt(get_balance(user.id))}"
         )
         await send_notice(interaction, safe_badges(interaction.user.id, ["generous"]))
 
