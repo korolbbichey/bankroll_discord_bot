@@ -2,6 +2,7 @@
 Duel game for the BankRoll Discord Bot: two players stake the same bet on a coin flip, the winner takes both.
 
 The challenger's bet is taken when the duel is created and returned if it doesn't happen.
+It is held in the database, so duels left open by a restart are refunded at startup.
 Unlike the other games there is no house edge: coins only move between the two players.
 """
 
@@ -15,7 +16,7 @@ from discord import app_commands
 
 from ..coinflip_gif import animation_seconds, render_flip_gif
 from ..config import DUEL_TIMEOUT, RESULT_DELAY_MARGIN
-from ..database import credit, get_balance, record_coin_event, try_debit
+from ..database import accept_duel, get_balance, open_duel, record_coin_event, refund_duel
 from ..progression import send_notice, track_game
 from ..slots_gif import GOLD_LIGHT
 from ..utils import Bet, DRAW_SLOTS, display_name, fmt, validate_bet
@@ -26,8 +27,9 @@ GIF_NAME = "duel.gif"
 
 
 class DuelView(discord.ui.View):
-    def __init__(self, challenger: discord.abc.User, opponent: discord.abc.User, bet: int):
+    def __init__(self, duel_id: int, challenger: discord.abc.User, opponent: discord.abc.User, bet: int):
         super().__init__(timeout=DUEL_TIMEOUT)
+        self.duel_id = duel_id
         self.challenger = challenger
         self.opponent = opponent
         self.bet = bet
@@ -48,9 +50,8 @@ class DuelView(discord.ui.View):
         return True
 
     async def on_timeout(self):
-        if not self.close():
+        if not self.close() or not refund_duel(self.duel_id):
             return
-        credit(self.challenger.id, self.bet)
         if self.last_interaction:
             embed = discord.Embed(title="⌛ Duel expired", color=discord.Color.light_grey(),
                                   description=f"{self.opponent.mention} didn't answer. {self.challenger.mention} got the bet back.")
@@ -67,38 +68,39 @@ class DuelView(discord.ui.View):
         if self.finished:
             await interaction.response.send_message("This duel is already over.", ephemeral=True)
             return
-        if not try_debit(self.opponent.id, self.bet):
+        outcome = random.choice(["heads", "tails"])
+        winner = self.challenger if outcome == "heads" else self.opponent
+        # Takes the opponent's bet and pays the winner in one transaction, so no restart can lose either bet.
+        status, balance = accept_duel(self.duel_id, winner.id)
+        if status == "no_coins":
             await interaction.response.send_message(
-                f"❌ You need **{fmt(self.bet)}** coins (balance: {fmt(get_balance(self.opponent.id))}).", ephemeral=True)
+                f"❌ You need **{fmt(self.bet)}** coins (balance: {fmt(balance)}).", ephemeral=True)
             return
-        if not self.close():  # expired at the same moment: give the coins back
-            credit(self.opponent.id, self.bet)
+        self.close()
+        if status == "gone":
             await interaction.response.send_message("This duel is already over.", ephemeral=True)
             return
 
         await interaction.response.defer()
-        await self.play(interaction)
+        await self.play(interaction, outcome, balance)
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.secondary)
     async def decline(self, interaction: discord.Interaction, _):
         if interaction.user.id not in (self.opponent.id, self.challenger.id):
             await interaction.response.send_message("This isn't your duel!", ephemeral=True)
             return
-        if not self.close():
+        if not self.close() or not refund_duel(self.duel_id):
             await interaction.response.send_message("This duel is already over.", ephemeral=True)
             return
-        credit(self.challenger.id, self.bet)
         who = "cancelled" if interaction.user.id == self.challenger.id else "declined"
         embed = discord.Embed(title=f"🏳️ Duel {who}", color=discord.Color.light_grey(),
                               description=f"{self.challenger.mention} got the bet back.")
         await interaction.response.edit_message(content=None, embed=embed, view=self)
 
-    async def play(self, interaction: discord.Interaction):
-        """Both bets are taken. Settle first, so a failed animation can't cost anyone their coins."""
-        outcome = random.choice(["heads", "tails"])
+    async def play(self, interaction: discord.Interaction, outcome: str, winner_balance: int):
+        """The duel is already settled, so a failed animation can't cost anyone their coins."""
         winner, loser = (self.challenger, self.opponent) if outcome == "heads" else (self.opponent, self.challenger)
         pot = self.bet * 2
-        winner_balance = credit(winner.id, pot)
         record_coin_event(winner.id, "duel", self.bet, f"beat {loser.id}")
         progress = {
             winner.id: track_game(winner.id, "duel", self.bet, pot),
@@ -155,11 +157,12 @@ def setup(client):
             return
 
         is_valid, error_msg = validate_bet(bet, get_balance(interaction.user.id))
-        if not is_valid or not try_debit(interaction.user.id, bet):
+        duel_id = open_duel(interaction.user.id, user.id, bet) if is_valid else None
+        if duel_id is None:
             await interaction.response.send_message(f"❌ {error_msg or 'You do not have enough balance for that bet.'}", ephemeral=True)
             return
 
-        view = DuelView(interaction.user, user, bet)
+        view = DuelView(duel_id, interaction.user, user, bet)
         view.last_interaction = interaction
         embed = discord.Embed(
             title="⚔️ Duel challenge!",
@@ -172,5 +175,5 @@ def setup(client):
             await interaction.response.send_message(user.mention, embed=embed, view=view)
         except Exception:
             if view.close():
-                credit(interaction.user.id, bet)
+                refund_duel(duel_id)
             raise

@@ -102,6 +102,14 @@ def init_db():
             amount INTEGER NOT NULL,
             detail TEXT
         )''')
+        # Challengers' bets held while a duel waits for an answer, so they can be refunded after a restart.
+        cursor.execute('''CREATE TABLE IF NOT EXISTS pending_duels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            challenger_id INTEGER NOT NULL,
+            opponent_id INTEGER NOT NULL,
+            bet INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        )''')
 
         # The clown symbol was removed from the slots.
         cursor.execute("DELETE FROM symbol_counts WHERE symbol = ?", ("\U0001f921",))
@@ -109,10 +117,12 @@ def init_db():
         # ---- Progression: XP, per-game stats and badges ----
         cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'players'")
         players_is_new = cursor.fetchone() is None
+        # veteran = played before per-game stats existed: first_played is unknown, so they never count as new players
         cursor.execute('''CREATE TABLE IF NOT EXISTS players (
             user_id INTEGER PRIMARY KEY,
             xp INTEGER DEFAULT 0,
-            first_played TEXT
+            first_played TEXT,
+            veteran INTEGER DEFAULT 0
         )''')
         # game is 'slots', 'coinflip' or 'blackjack'; net is total payout minus total bets
         cursor.execute('''CREATE TABLE IF NOT EXISTS game_stats (
@@ -129,11 +139,31 @@ def init_db():
             earned_at TEXT NOT NULL,
             PRIMARY KEY (user_id, badge)
         )''')
+        player_columns = [row[1] for row in cursor.execute("PRAGMA table_info(players)")]
+        if "veteran" not in player_columns:
+            cursor.execute("ALTER TABLE players ADD COLUMN veteran INTEGER DEFAULT 0")
+            # Veterans either haven't played since (first_played is still empty), or their old stats hold more
+            # games than game_stats, which only counts games since it was added. Blackjack pushes are missing
+            # from the old stats, so blackjack is compared by wins and losses separately.
+            cursor.execute("""
+                UPDATE players SET veteran = 1
+                WHERE first_played IS NULL
+                   OR COALESCE((SELECT games_played FROM stats s WHERE s.user_id = players.user_id), 0)
+                      > COALESCE((SELECT SUM(games) FROM game_stats g
+                                  WHERE g.user_id = players.user_id AND g.game IN ('slots', 'coinflip')), 0)
+                   OR EXISTS (
+                      SELECT 1 FROM blackjack_stats b
+                      LEFT JOIN game_stats g ON g.user_id = b.user_id AND g.game = 'blackjack'
+                      WHERE b.user_id = players.user_id
+                        AND (b.blackjack_wins > COALESCE(g.wins, 0)
+                             OR b.blackjack_losses > COALESCE(g.games - g.wins, 0))
+                   )
+            """)
         if players_is_new:
             # Existing players keep their progress: XP is rebuilt from the stats recorded so far.
             cursor.execute("""
-                INSERT INTO players (user_id, xp)
-                SELECT user_id, SUM(games) * ? + SUM(wins) * ? FROM (
+                INSERT INTO players (user_id, xp, veteran)
+                SELECT user_id, SUM(games) * ? + SUM(wins) * ?, 1 FROM (
                     SELECT user_id, games_played AS games, wins FROM stats
                     UNION ALL
                     SELECT user_id, blackjack_wins + blackjack_losses, blackjack_wins FROM blackjack_stats
@@ -478,10 +508,11 @@ def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, to
 
 
 def get_player_progress(user_id) -> tuple[int, str | None]:
-    """(xp, first_played date as YYYY-MM-DD or None)."""
+    """(xp, first_played date as YYYY-MM-DD or None). Veterans' first game was before dates were recorded."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT xp, first_played FROM players WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT xp, CASE WHEN veteran THEN NULL ELSE first_played END FROM players WHERE user_id = ?",
+                       (user_id,))
         row = cursor.fetchone()
     return (row[0], row[1]) if row else (0, None)
 
@@ -525,6 +556,67 @@ def record_coin_event(user_id, kind: str, amount: int, detail: str = ""):
                      (datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), user_id, kind, amount, detail))
 
 
+# ============== Duel Operations ==============
+
+def open_duel(challenger_id, opponent_id, bet: int) -> int | None:
+    """Take the challenger's bet and hold it for the duel. Returns the duel ID, or None if they can't afford it."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        _ensure_account(cursor, challenger_id)
+        cursor.execute("UPDATE currency SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+                       (bet, challenger_id, bet))
+        if cursor.rowcount != 1:
+            return None
+        cursor.execute("INSERT INTO pending_duels (challenger_id, opponent_id, bet, created_at) VALUES (?, ?, ?, ?)",
+                       (challenger_id, opponent_id, bet, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")))
+        return cursor.lastrowid
+
+
+def accept_duel(duel_id: int, winner_id) -> tuple[str, int]:
+    """
+    Take the opponent's bet and pay both bets to the winner, in one transaction.
+    Returns ("ok", winner's balance), ("no_coins", opponent's balance) or ("gone", 0) if the duel is already over.
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT challenger_id, opponent_id, bet FROM pending_duels WHERE id = ?", (duel_id,)).fetchone()
+        if row is None:
+            return "gone", 0
+        _, opponent_id, bet = row
+        _ensure_account(cursor, opponent_id)
+        cursor.execute("UPDATE currency SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+                       (bet, opponent_id, bet))
+        if cursor.rowcount != 1:
+            return "no_coins", cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (opponent_id,)).fetchone()[0]
+        cursor.execute("DELETE FROM pending_duels WHERE id = ?", (duel_id,))
+        _ensure_account(cursor, winner_id)
+        cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (bet * 2, winner_id))
+        return "ok", cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (winner_id,)).fetchone()[0]
+
+
+def refund_duel(duel_id: int) -> bool:
+    """Give the challenger's bet back. Returns False if the duel was already accepted or refunded."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        row = cursor.execute("SELECT challenger_id, bet FROM pending_duels WHERE id = ?", (duel_id,)).fetchone()
+        if row is None:
+            return False
+        cursor.execute("DELETE FROM pending_duels WHERE id = ?", (duel_id,))
+        cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (row[1], row[0]))
+        return True
+
+
+def refund_pending_duels() -> int:
+    """Refund every duel still waiting for an answer. Called at startup, when no duel can be answered any more."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        rows = cursor.execute("SELECT challenger_id, bet FROM pending_duels").fetchall()
+        for challenger_id, bet in rows:
+            cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (bet, challenger_id))
+        cursor.execute("DELETE FROM pending_duels")
+        return len(rows)
+
+
 def get_bot_stats(now: datetime | None = None, days: int = 7) -> dict:
     """Numbers for /admin stats. Daily activity is only known from the day this table was added."""
     now = now or datetime.now(timezone.utc)
@@ -539,16 +631,21 @@ def get_bot_stats(now: datetime | None = None, days: int = 7) -> dict:
                 "day": day,
                 "active": one("SELECT COUNT(*) FROM player_days WHERE day = ?", day),
                 "games": one("SELECT COALESCE(SUM(games), 0) FROM player_days WHERE day = ?", day),
-                "new": one("SELECT COUNT(*) FROM players WHERE first_played = ?", day),
+                "new": one("SELECT COUNT(*) FROM players WHERE first_played = ? AND NOT veteran", day),
             })
 
-        # Of the players whose first game was at least a day ago (within the period), how many played on a later day?
-        cohort = one("SELECT COUNT(*) FROM players WHERE first_played >= ? AND first_played < ?", day_names[-1], day_names[0])
+        # Of the new players whose first game was at least a day ago (within the period), how many played on a later day?
+        cohort = one("SELECT COUNT(*) FROM players WHERE first_played >= ? AND first_played < ? AND NOT veteran",
+                     day_names[-1], day_names[0])
         returned = one("""
             SELECT COUNT(*) FROM players p
-            WHERE p.first_played >= ? AND p.first_played < ?
+            WHERE p.first_played >= ? AND p.first_played < ? AND NOT p.veteran
               AND EXISTS (SELECT 1 FROM player_days d WHERE d.user_id = p.user_id AND d.day > p.first_played)
         """, day_names[-1], day_names[0])
+        veterans_back = one("""
+            SELECT COUNT(DISTINCT d.user_id) FROM player_days d JOIN players p ON p.user_id = d.user_id
+            WHERE p.veteran AND d.day >= ?
+        """, day_names[-1])
 
         return {
             "days": per_day,
@@ -559,6 +656,7 @@ def get_bot_stats(now: datetime | None = None, days: int = 7) -> dict:
             """),
             "cohort": cohort,
             "returned": returned,
+            "veterans_back": veterans_back,
             "games": cursor.execute(
                 "SELECT game, SUM(games), COUNT(*), SUM(net) FROM game_stats GROUP BY game ORDER BY SUM(games) DESC"
             ).fetchall(),

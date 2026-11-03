@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 # Import bot modules
 from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
-from bot.database import init_db, mark_announcement_shown, save_username
+from bot.database import init_db, mark_announcement_shown, refund_pending_duels, save_username
 from bot.utils import display_name, avatar_hash, InvalidBet
 from bot.commands import economy, admin, general
 from bot.games import slots, blackjack, coinflip, duel
@@ -33,6 +33,9 @@ if not bot_token:
 # Initialize database
 init_db()
 logger.info("Database initialized at %s", os.path.abspath(DB_FILE))
+# Duels left waiting by the last shutdown can't be answered any more: their buttons died with the old process.
+if refunded := refund_pending_duels():
+    logger.info("Refunded %d unanswered duel(s) from before the restart.", refunded)
 
 
 class BankRollBot(commands.Bot):

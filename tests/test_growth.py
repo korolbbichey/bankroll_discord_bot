@@ -114,8 +114,9 @@ def test_quick_play_buttons_start_public_games(db):
 # ---------- duels ----------
 
 def new_duel(db, bet=10):
-    assert db.try_debit(1, bet)
-    view = DuelView(make_user(1, global_name="Ann"), make_user(2, global_name="Bob"), bet)
+    duel_id = db.open_duel(1, 2, bet)
+    assert duel_id is not None
+    view = DuelView(duel_id, make_user(1, global_name="Ann"), make_user(2, global_name="Bob"), bet)
     view.last_interaction = make_interaction(1)
     return view
 
@@ -247,6 +248,38 @@ def test_failed_duel_animation_still_pays(db, monkeypatch):
     assert db.get_balance(1) == STARTING_BALANCE + 10
 
 
+def test_duels_open_at_a_restart_are_refunded(db):
+    new_duel(db, bet=30)
+    new_duel(db, bet=20)
+    assert db.get_balance(1) == STARTING_BALANCE - 50
+    assert db.refund_pending_duels() == 2
+    assert db.refund_pending_duels() == 0
+    assert db.get_balance(1) == STARTING_BALANCE
+
+
+def test_finished_duels_are_not_refunded_at_a_restart(db, monkeypatch):
+    force_coin(monkeypatch, "tails")
+
+    async def go():
+        accepted, declined = new_duel(db), new_duel(db)
+        await accepted.accept.callback(make_interaction(2, done=False))
+        await declined.decline.callback(make_interaction(2, done=False))
+    asyncio.run(go())
+    assert db.refund_pending_duels() == 0
+    assert (db.get_balance(1), db.get_balance(2)) == (STARTING_BALANCE - 10, STARTING_BALANCE + 10)
+
+
+def test_a_refunded_duel_cannot_be_accepted(db):
+    async def go():
+        view = new_duel(db)
+        db.refund_pending_duels()
+        interaction = make_interaction(2, done=False)
+        await view.accept.callback(interaction)
+        assert "already over" in interaction.response.send_message.call_args.args[0]
+    asyncio.run(go())
+    assert (db.get_balance(1), db.get_balance(2)) == (STARTING_BALANCE, STARTING_BALANCE)
+
+
 def test_duel_only_player_has_a_profile(bot, db):
     db.set_balance(1, 50)
     progression.record_game(1, "duel", 10, 20)
@@ -276,6 +309,53 @@ def test_daily_activity_and_retention(db, monkeypatch):
     assert (previous["new"], previous["active"], previous["games"]) == (0, 1, 1)
     assert (stats["cohort"], stats["returned"]) == (2, 1)
     assert stats["games"] == [("slots", 5, 3, -50)]
+
+
+def old_database_with_veterans(tmp_path):
+    """A database from before the veteran flag: players 1 and 2 played before game_stats existed, 3 and 4 after."""
+    import sqlite3
+    path = tmp_path / "before_veterans.db"
+    conn = sqlite3.connect(path)
+    conn.executescript("""
+        CREATE TABLE stats (user_id INTEGER PRIMARY KEY, games_played INTEGER DEFAULT 0, wins INTEGER DEFAULT 0,
+            losses INTEGER DEFAULT 0, total_earned INTEGER DEFAULT 0, most_common_symbol TEXT DEFAULT '',
+            largest_win INTEGER DEFAULT 0);
+        CREATE TABLE blackjack_stats (user_id INTEGER PRIMARY KEY, blackjack_wins INTEGER DEFAULT 0,
+            blackjack_losses INTEGER DEFAULT 0, blackjack_total_earned INTEGER DEFAULT 0,
+            blackjack_largest_win INTEGER DEFAULT 0);
+        CREATE TABLE players (user_id INTEGER PRIMARY KEY, xp INTEGER DEFAULT 0, first_played TEXT);
+        CREATE TABLE game_stats (user_id INTEGER NOT NULL, game TEXT NOT NULL, games INTEGER DEFAULT 0,
+            wins INTEGER DEFAULT 0, net INTEGER DEFAULT 0, PRIMARY KEY (user_id, game));
+        -- 1: 20 slots games before, 2 after; 2: an old blackjack loss, came back for one win
+        INSERT INTO stats VALUES (1, 22, 5, 17, 0, '', 0);
+        INSERT INTO blackjack_stats VALUES (2, 1, 1, 10, 10);
+        -- 3: new, everything recorded in both; 4: new, a blackjack push that the old stats don't count
+        INSERT INTO stats VALUES (3, 4, 1, 3, 0, '', 0);
+        INSERT INTO blackjack_stats VALUES (4, 1, 0, 10, 10);
+        INSERT INTO players VALUES (1, 0, '2026-11-08'), (2, 0, '2026-11-08'), (3, 0, '2026-11-08'),
+                                   (4, 0, '2026-11-08'), (5, 0, NULL);
+        INSERT INTO game_stats VALUES (1, 'slots', 2, 0, -20), (2, 'blackjack', 1, 1, 10), (3, 'slots', 3, 1, 0),
+                                      (3, 'coinflip', 1, 0, -10), (4, 'blackjack', 2, 1, 10);
+    """)
+    conn.close()
+    return path
+
+
+def test_old_players_are_marked_as_veterans(db, tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_FILE", str(old_database_with_veterans(tmp_path)))
+    db.init_db()
+    db.init_db()
+    with db.get_connection() as conn:
+        veterans = {row[0] for row in conn.execute("SELECT user_id FROM players WHERE veteran")}
+    assert veterans == {1, 2, 5}
+
+    for user_id in (1, 3):
+        db.record_game_result(user_id, "slots", False, -10, 10, "2026-11-10")
+    stats = db.get_bot_stats(now=NOW)
+    assert stats["days"][2]["new"] == 2, "only 3 and 4 were new on 11-08"
+    assert (stats["cohort"], stats["returned"], stats["veterans_back"]) == (2, 1, 1)
+    assert db.get_player_progress(1)[1] is None, "a veteran's first game is unknown"
+    assert db.get_player_progress(3)[1] == "2026-11-08"
 
 
 def test_never_played_counts_accounts_without_games(db):

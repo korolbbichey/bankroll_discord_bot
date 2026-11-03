@@ -68,7 +68,8 @@ def setup(client):
         embed.add_field(name="👥 Players", value=(
             f"Accounts: **{fmt(data['accounts'])}**\n"
             f"Never played a game: **{fmt(data['never_played'])}**\n"
-            f"New players who came back later: **{rate}** ({data['returned']} of {data['cohort']}, last 7 days)"
+            f"New players who came back later: **{rate}** ({data['returned']} of {data['cohort']}, last 7 days)\n"
+            f"Old players who played this week: **{fmt(data['veterans_back'])}**"
         ), inline=False)
 
         embed.add_field(name="📅 Last 7 days (UTC)", value="\n".join(
