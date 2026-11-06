@@ -103,7 +103,8 @@ def merge_progress(items: list[Progress | None]) -> Progress | None:
     leveled = [item for item in items if item.leveled_up]
     before, after = ((leveled[0].level_before, leveled[-1].level_after) if leveled
                      else (items[-1].level_after, items[-1].level_after))
-    return Progress(before, after, [b for item in items for b in item.new_badges], sum(item.coins for item in items))
+    return Progress(before, after, [b for item in items for b in item.new_badges], sum(item.coins for item in items),
+                    any(item.xp_limit_reached for item in items))
 
 
 def line_cells(name: str) -> list[tuple[int, int]]:

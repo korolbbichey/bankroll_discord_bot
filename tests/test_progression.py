@@ -55,6 +55,29 @@ def test_xp_per_game_and_level_up(db):
     assert "Level up" in progress.notice()
 
 
+def test_daily_xp_limit(db, monkeypatch):
+    monkeypatch.setattr(progression, "DAILY_XP_LIMIT", 25)
+    monkeypatch.setattr(progression, "_today", lambda: "2026-11-06")
+    first, second = record_game(1, "coinflip", 10, 0), record_game(1, "coinflip", 10, 20)  # 10 + 15 = 25 XP
+    assert db.get_player_progress(1)[0] == 25
+    assert not first.xp_limit_reached and second.xp_limit_reached
+    assert "today's 25 XP" in second.notice()
+    after = record_game(1, "coinflip", 10, 20)
+    assert db.get_player_progress(1)[0] == 25, "no XP after the limit"
+    assert not after.xp_limit_reached and after.notice() is None, "the limit is announced once"
+    assert db.get_game_stats(1)["coinflip"][0] == 3, "games still count"
+    monkeypatch.setattr(progression, "_today", lambda: "2026-11-07")
+    record_game(1, "coinflip", 10, 0)
+    assert db.get_player_progress(1)[0] == 35, "XP comes back the next day"
+
+
+def test_daily_xp_limit_cuts_the_last_game(db, monkeypatch):
+    monkeypatch.setattr(progression, "DAILY_XP_LIMIT", 18)
+    record_game(1, "coinflip", 10, 0)
+    progress = record_game(1, "coinflip", 10, 20)
+    assert db.get_player_progress(1)[0] == 18 and progress.xp_limit_reached
+
+
 def test_new_title_is_announced(db):
     for _ in range(19):  # 285 XP, level 2
         record_game(1, "slots", 10, 30)

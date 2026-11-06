@@ -104,6 +104,9 @@ def init_db():
             games INTEGER DEFAULT 0,
             PRIMARY KEY (day, user_id)
         )''')
+        # XP earned from games that day, for the daily XP limit
+        if "xp" not in [row[1] for row in cursor.execute("PRAGMA table_info(player_days)")]:
+            cursor.execute("ALTER TABLE player_days ADD COLUMN xp INTEGER DEFAULT 0")
         cursor.execute('''CREATE TABLE IF NOT EXISTS coin_events (
             at TEXT NOT NULL,
             user_id INTEGER NOT NULL,
@@ -562,10 +565,12 @@ def get_user_profile(user_id) -> dict:
 
 # ============== Progression Operations ==============
 
-def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, today: str) -> tuple[int, int]:
+def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, today: str,
+                       daily_xp_limit: int | None = None) -> tuple[int, int, int]:
     """
     Add a finished game to the player's per-game stats and XP.
-    Returns (xp_before, xp_after).
+    With daily_xp_limit, XP from games stops once the player has earned that much today (UTC).
+    Returns (xp_before, xp_after, xp earned from games today including this one).
     """
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -573,6 +578,11 @@ def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, to
         cursor.execute("UPDATE players SET first_played = ? WHERE user_id = ? AND first_played IS NULL", (today, user_id))
         cursor.execute("SELECT xp FROM players WHERE user_id = ?", (user_id,))
         xp_before = cursor.fetchone()[0]
+        cursor.execute("SELECT COALESCE(xp, 0) FROM player_days WHERE day = ? AND user_id = ?", (today, user_id))
+        row = cursor.fetchone()
+        xp_today = row[0] if row else 0
+        if daily_xp_limit is not None:
+            xp_gain = max(0, min(xp_gain, daily_xp_limit - xp_today))
         cursor.execute("UPDATE players SET xp = xp + ? WHERE user_id = ?", (xp_gain, user_id))
         cursor.execute("""
             INSERT INTO game_stats (user_id, game, games, wins, net) VALUES (?, ?, 1, ?, ?)
@@ -582,12 +592,12 @@ def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, to
                 net = net + excluded.net
         """, (user_id, game, int(won), net))
         cursor.execute("""
-            INSERT INTO player_days (day, user_id, games) VALUES (?, ?, 1)
-            ON CONFLICT(day, user_id) DO UPDATE SET games = games + 1
-        """, (today, user_id))
+            INSERT INTO player_days (day, user_id, games, xp) VALUES (?, ?, 1, ?)
+            ON CONFLICT(day, user_id) DO UPDATE SET games = games + 1, xp = COALESCE(xp, 0) + excluded.xp
+        """, (today, user_id, xp_gain))
     if game != "duel" and net >= COIN_EVENT_MIN:  # duels log themselves, with the opponent
         record_coin_event(user_id, game, net)
-    return xp_before, xp_before + xp_gain
+    return xp_before, xp_before + xp_gain, xp_today + xp_gain
 
 
 def get_player_progress(user_id) -> tuple[int, str | None]:
