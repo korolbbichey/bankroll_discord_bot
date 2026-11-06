@@ -182,5 +182,73 @@ def test_log_keeps_the_last_five(db, monkeypatch):
     assert len(log) == 5 and log[0].startswith("`#7`") and log[-1].startswith("`#3`")
 
 
+def test_several_autoplays_can_run_at_once(db, monkeypatch):
+    force_spins(monkeypatch, *[LOSS] * 4)
+
+    async def go():
+        first, second = SlotView(1, 10), SlotView(1, 10)
+        a, b = make_interaction(1), make_interaction(1)
+        await asyncio.gather(first.autoplay(a, 2), second.autoplay(b, 2))
+        return a, b
+    a, b = asyncio.run(go())
+    assert db.get_balance(1) == STARTING_BALANCE - 40, "both autoplays played"
+    for interaction in (a, b):
+        assert sent_embed(interaction.edit_original_response).title == "🔁 Autoplay over: all 2 spins played"
+
+
+def test_autoplays_per_player_are_limited(db, monkeypatch):
+    limit = slots.AUTOPLAY_MAX_PER_PLAYER
+
+    async def go():
+        finish = asyncio.Event()
+        running = []
+
+        async def long_autoplay(view, interaction, spins, stop_loss=None):
+            running.append(view)
+            await finish.wait()
+        monkeypatch.setattr(SlotView, "autoplay", long_autoplay)
+        client = main.BankRollBot()
+        slots.setup(client)
+        command = client.tree.get_command("slots").callback
+
+        runs = [asyncio.create_task(command(make_interaction(1, done=False), 10, 2, None)) for _ in range(limit)]
+        while len(running) < limit:
+            await asyncio.wait(runs, timeout=0.01)
+        rejected, button = make_interaction(1, done=False), make_interaction(1, done=False)
+        await command(rejected, 10, 2, None)
+        await SlotView(1, 10).auto_spin.callback(button)
+        other_player = make_interaction(2, done=False)
+        runs.append(asyncio.create_task(command(other_player, 10, 2, None)))
+        while len(running) < limit + 1:
+            await asyncio.wait(runs, timeout=0.01)
+        finish.set()
+        await asyncio.gather(*runs)
+        assert not slots.running_autoplays, "finished autoplays are released"
+        return rejected, button
+    for interaction in asyncio.run(go()):
+        call = interaction.response.send_message.call_args
+        assert call.args[0] == slots.TOO_MANY_AUTOPLAYS and call.kwargs["ephemeral"]
+
+
+def test_autoplay_slot_is_released_after_an_error(db, monkeypatch):
+    async def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(SlotView, "autoplay", broken)
+
+    async def go():
+        with pytest.raises(RuntimeError):
+            await SlotView(1, 10).auto_spin.callback(make_interaction(1, done=False))
+    asyncio.run(go())
+    assert not slots.running_autoplays
+
+
+def test_merged_notice_claims_only_its_own_level_ups():
+    from bot.progression import Progress
+    assert slots.merge_progress([Progress(13, 13), Progress(14, 14)]).leveled_up is False, \
+        "a level reached by another game window isn't announced here"
+    merged = slots.merge_progress([Progress(12, 12), Progress(12, 13, coins=325), Progress(14, 14)])
+    assert (merged.level_before, merged.level_after, merged.coins) == (12, 13, 325)
+
+
 def test_spin_animation_is_fast():
     assert animation_seconds(False) <= 1.1

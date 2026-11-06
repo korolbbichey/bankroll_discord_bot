@@ -108,6 +108,7 @@ AUTOPLAY_BUTTON_SPINS = 10      # spins started by the "Auto" button
 AUTOPLAY_DELAY = 0.8           # a moment to see the result before the next spin
 AUTOPLAY_STOP_MULTIPLIER = 10   # autoplay pauses on a win of this many bets, so the player sees it
 AUTOPLAY_LOG_SIZE = 5           # recent spins listed under the picture
+AUTOPLAY_MAX_PER_PLAYER = 3     # autoplays one player can run at the same time (each draws a GIF per spin)
 
 # Game timeouts (in seconds)
 GAME_TIMEOUT = 60

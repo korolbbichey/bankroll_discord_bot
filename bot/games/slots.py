@@ -15,6 +15,7 @@ import logging
 from ..config import (
     SLOT_SYMBOLS, SYMBOL_WEIGHTS, SLOT_PAYOUTS, MIN_BET, MAX_BET, GAME_TIMEOUT, SLOTS_RESULT_DELAY_MARGIN,
     AUTOPLAY_MAX_SPINS, AUTOPLAY_BUTTON_SPINS, AUTOPLAY_DELAY, AUTOPLAY_STOP_MULTIPLIER, AUTOPLAY_LOG_SIZE,
+    AUTOPLAY_MAX_PER_PLAYER,
 )
 from ..database import get_balance, try_debit, credit, update_stats
 from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet
@@ -26,6 +27,29 @@ logger = logging.getLogger(__name__)
 _WEIGHTS = [SYMBOL_WEIGHTS[s] for s in SLOT_SYMBOLS]
 SPIN_COLOR = discord.Color.blurple()
 GIF_NAME = "spin.gif"
+running_autoplays: dict[int, int] = {}  # user id -> autoplays running now
+TOO_MANY_AUTOPLAYS = (f"🔁 You already have {AUTOPLAY_MAX_PER_PLAYER} autoplays running. "
+                      "Wait for one to finish or press Stop on it first.")
+
+
+async def run_autoplay(interaction: discord.Interaction, view: "SlotView", spins: int, stop_loss: int | None,
+                       respond):
+    """
+    Start autoplay unless the player already runs AUTOPLAY_MAX_PER_PLAYER of them.
+    respond() answers the interaction (the first await, so the check and the count can't be raced).
+    """
+    user_id = view.user_id
+    if running_autoplays.get(user_id, 0) >= AUTOPLAY_MAX_PER_PLAYER:
+        await interaction.response.send_message(TOO_MANY_AUTOPLAYS, ephemeral=True)
+        return
+    running_autoplays[user_id] = running_autoplays.get(user_id, 0) + 1
+    try:
+        await respond()
+        await view.autoplay(interaction, spins, stop_loss)
+    finally:
+        running_autoplays[user_id] -= 1
+        if not running_autoplays[user_id]:
+            del running_autoplays[user_id]
 
 
 LINE_NAMES = ["Row 1", "Row 2", "Row 3", "Column 1", "Column 2", "Column 3", "Diagonal ↘", "Diagonal ↙"]
@@ -69,12 +93,17 @@ def log_line(number: int, winning_lines: list, payout: int, bet: int) -> str:
 
 
 def merge_progress(items: list[Progress | None]) -> Progress | None:
-    """Several games' progress as one notice: the level change over all of them and every new badge."""
+    """
+    Several games' progress as one notice: the levels these games reached and every new badge.
+    Levels gained by other games played at the same time (another game window) aren't claimed.
+    """
     items = [item for item in items if item]
     if not items:
         return None
-    return Progress(items[0].level_before, items[-1].level_after, [b for item in items for b in item.new_badges],
-                    sum(item.coins for item in items))
+    leveled = [item for item in items if item.leveled_up]
+    before, after = ((leveled[0].level_before, leveled[-1].level_after) if leveled
+                     else (items[-1].level_after, items[-1].level_after))
+    return Progress(before, after, [b for item in items for b in item.new_badges], sum(item.coins for item in items))
 
 
 def line_cells(name: str) -> list[tuple[int, int]]:
@@ -148,8 +177,7 @@ class SlotView(discord.ui.View):
 
     @discord.ui.button(label=f"Auto ×{AUTOPLAY_BUTTON_SPINS} 🔁", style=discord.ButtonStyle.primary)
     async def auto_spin(self, interaction: discord.Interaction, _):
-        await interaction.response.defer()
-        await self.autoplay(interaction, AUTOPLAY_BUTTON_SPINS)
+        await run_autoplay(interaction, self, AUTOPLAY_BUTTON_SPINS, None, interaction.response.defer)
 
     @discord.ui.button(label="Stop 🚫", style=discord.ButtonStyle.danger)
     async def stop_game(self, interaction: discord.Interaction, _):
@@ -360,8 +388,8 @@ async def start_slots(interaction: discord.Interaction, bet: int, spins: int | N
 
     view = SlotView(user_id, bet)
     if spins or stop_loss:
-        await interaction.response.send_message("🔁 Starting autoplay...")
-        await view.autoplay(interaction, spins or AUTOPLAY_MAX_SPINS, stop_loss)
+        await run_autoplay(interaction, view, spins or AUTOPLAY_MAX_SPINS, stop_loss,
+                           lambda: interaction.response.send_message("🔁 Starting autoplay..."))
         return
     await interaction.response.send_message("🎰 Spinning...")
     await view.spin(interaction)
