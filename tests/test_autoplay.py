@@ -159,3 +159,22 @@ def test_still_picture_is_a_small_png():
 
 def test_spin_animation_is_faster():
     assert animation_seconds(False) <= 1.1
+
+
+def test_each_spin_shows_a_log_of_recent_spins(db, monkeypatch):
+    _, interaction = autoplay(monkeypatch, 3, LOSS, SMALL_WIN, LOSS)
+    third = interaction.edit_original_response.call_args_list[2].kwargs["embed"]
+    log = {f.name: f.value for f in third.fields}["🧾 Last spins"]
+    assert log.splitlines() == ["`#3` **-10**", f"`#2` {CHERRY * 3} **+10**", "`#1` **-10**"]
+
+
+def test_log_keeps_the_last_five(db, monkeypatch):
+    _, interaction = autoplay(monkeypatch, 7, *[LOSS] * 7)
+    last = interaction.edit_original_response.call_args_list[6].kwargs["embed"]
+    log = {f.name: f.value for f in last.fields}["🧾 Last spins"].splitlines()
+    assert len(log) == 5 and log[0].startswith("`#7`") and log[-1].startswith("`#3`")
+
+
+def test_pause_between_spins_is_long_enough_to_see(monkeypatch):
+    from bot.config import AUTOPLAY_DELAY
+    assert AUTOPLAY_DELAY >= 2

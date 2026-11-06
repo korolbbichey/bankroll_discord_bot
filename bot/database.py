@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from .config import (
     DB_FILE, STARTING_BALANCE, DAILY_STREAK_REWARDS, XP_PER_GAME, XP_PER_WIN, BAILOUT_AMOUNT, COIN_EVENT_MIN,
+    BADGE_RARITY, BADGE_REWARDS, BADGE_REWARDS_SINCE,
 )
 
 
@@ -184,6 +185,33 @@ def init_db():
                 UNION
                 SELECT user_id, 'first_win', date('now') FROM blackjack_stats WHERE blackjack_wins > 0
             """)
+
+        # Badges started paying coins on BADGE_REWARDS_SINCE. Players are paid once for the badges they
+        # collected before that; `notified` turns 1 when they've been told about it.
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'badge_backpay'")
+        backpay_is_new = cursor.fetchone() is None
+        cursor.execute('''CREATE TABLE IF NOT EXISTS badge_backpay (
+            user_id INTEGER PRIMARY KEY,
+            coins INTEGER NOT NULL,
+            badges INTEGER NOT NULL,
+            notified INTEGER DEFAULT 0
+        )''')
+        if backpay_is_new:
+            owed: dict[int, list[int]] = {}
+            for user_id, badge in cursor.execute("SELECT user_id, badge FROM badges WHERE earned_at < ?",
+                                                 (BADGE_REWARDS_SINCE,)).fetchall():
+                if badge in BADGE_RARITY:
+                    owed.setdefault(user_id, []).append(BADGE_REWARDS[BADGE_RARITY[badge]])
+            at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            for user_id, rewards in owed.items():
+                coins = sum(rewards)
+                _ensure_account(cursor, user_id)
+                cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (coins, user_id))
+                cursor.execute("INSERT INTO badge_backpay (user_id, coins, badges) VALUES (?, ?, ?)",
+                               (user_id, coins, len(rewards)))
+                if coins >= COIN_EVENT_MIN:
+                    cursor.execute("INSERT INTO coin_events (at, user_id, kind, amount, detail) VALUES (?, ?, ?, ?, ?)",
+                                   (at, user_id, "badges", coins, f"{len(rewards)} old badges"))
 
 
 def _ensure_account(cursor, user_id):
@@ -430,6 +458,16 @@ def set_bet_confirmation(user_id, enabled: bool):
         cursor = conn.cursor()
         _ensure_account(cursor, user_id)
         cursor.execute("UPDATE currency SET confirm_big_bets = ? WHERE user_id = ?", (int(enabled), user_id))
+
+
+def take_backpay_notice(user_id) -> tuple[int, int] | None:
+    """(coins, badges) paid for the player's old badges if they haven't been told yet, and mark them as told."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE badge_backpay SET notified = 1 WHERE user_id = ? AND notified = 0", (user_id,))
+        if cursor.rowcount != 1:
+            return None
+        return cursor.execute("SELECT coins, badges FROM badge_backpay WHERE user_id = ?", (user_id,)).fetchone()
 
 
 def mark_announcement_shown(target_id, announcement_id: str) -> bool:

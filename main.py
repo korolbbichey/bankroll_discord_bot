@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 # Import bot modules
 from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
-from bot.database import init_db, mark_announcement_shown, refund_pending_duels, save_username
+from bot.database import init_db, mark_announcement_shown, refund_pending_duels, save_username, take_backpay_notice
 from bot.utils import display_name, avatar_hash, InvalidBet
 from bot.commands import economy, admin, general, work
 from bot.games import slots, blackjack, coinflip, duel, roulette
@@ -82,6 +82,7 @@ class BankRollBot(commands.Bot):
     async def on_app_command_completion(self, interaction: discord.Interaction, command):
         self.remember_name(interaction.user)
         await self.maybe_announce(interaction)
+        await self.maybe_tell_backpay(interaction)
 
     def remember_name(self, user: discord.abc.User):
         """Keep the player's name and avatar hash in the database for the leaderboard (DB write only when they change)."""
@@ -108,6 +109,20 @@ class BankRollBot(commands.Bot):
                 await interaction.followup.send(embed=general.build_announcement_embed(), ephemeral=not public)
         except Exception:
             logger.exception("Failed to send announcement")
+
+    async def maybe_tell_backpay(self, interaction: discord.Interaction):
+        """Tell a player, privately and once, about the coins paid for the badges they collected before rewards."""
+        if not interaction.response.is_done():
+            return
+        try:
+            paid = take_backpay_notice(interaction.user.id)
+            if paid:
+                coins, badges = paid
+                await interaction.followup.send(
+                    f"🎁 Badges pay coins now! You got **+{coins:,} coins** for the {badges} "
+                    f"badge{'s' if badges != 1 else ''} you collected before. Thanks for playing!", ephemeral=True)
+        except Exception:
+            logger.exception("Failed to tell about the badge backpay")
 
     async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, InvalidBet):

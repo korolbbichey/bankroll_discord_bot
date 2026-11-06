@@ -14,7 +14,7 @@ import logging
 
 from ..config import (
     SLOT_SYMBOLS, SYMBOL_WEIGHTS, SLOT_PAYOUTS, MIN_BET, MAX_BET, GAME_TIMEOUT, SLOTS_RESULT_DELAY_MARGIN,
-    AUTOPLAY_MAX_SPINS, AUTOPLAY_BUTTON_SPINS, AUTOPLAY_DELAY, AUTOPLAY_STOP_MULTIPLIER,
+    AUTOPLAY_MAX_SPINS, AUTOPLAY_BUTTON_SPINS, AUTOPLAY_DELAY, AUTOPLAY_STOP_MULTIPLIER, AUTOPLAY_LOG_SIZE,
 )
 from ..database import get_balance, try_debit, credit, update_stats
 from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet
@@ -60,6 +60,13 @@ def roll_grid() -> list[list[str]]:
 
 def signed(amount: int) -> str:
     return f"+{fmt(amount)}" if amount > 0 else fmt(amount)
+
+
+def log_line(number: int, winning_lines: list, payout: int, bet: int) -> str:
+    """One spin in the autoplay log: its number, the winning combos and what it made."""
+    combos = " ".join(combo for _, combo, _ in winning_lines)
+    result = payout - bet
+    return f"`#{number}` " + (f"{combos} " if combos else "") + (f"**{signed(result)}**" if result else "**±0**")
 
 
 def merge_progress(items: list[Progress | None]) -> Progress | None:
@@ -248,6 +255,7 @@ class SlotView(discord.ui.View):
         self.stop_game.disabled = False  # the one button that works during autoplay
         played = net = best = 0
         progress = []
+        log: list[str] = []
         reason = f"all {spins} spins played"
         try:
             for number in range(1, spins + 1):
@@ -267,12 +275,15 @@ class SlotView(discord.ui.View):
                 played += 1
                 net += payout - self.bet
                 best = max(best, payout - self.bet)
+                log.insert(0, log_line(number, winning_lines, payout, self.bet))
+                del log[AUTOPLAY_LOG_SIZE:]
                 self.timeout = GAME_TIMEOUT  # keeps the Stop button alive however long autoplay runs
 
                 embed = discord.Embed(title=f"🔁 Autoplay — spin {number}/{spins}", color=SPIN_COLOR)
                 embed.add_field(name="📈 Net", value=signed(net), inline=True)
                 embed.add_field(name="💰 Balance", value=fmt(balance), inline=True)
                 embed.add_field(name="🎲 Bet", value=fmt(self.bet), inline=True)
+                embed.add_field(name="🧾 Last spins", value="\n".join(log), inline=False)
                 embed.set_footer(text="Press Stop to end autoplay"
                                       + (f" • Stop-loss: {fmt(stop_loss)}" if stop_loss else ""))
                 picture = await self.draw_still(grid, winning_lines, payout)

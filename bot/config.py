@@ -58,6 +58,8 @@ BADGE_RARITY = {
     "month_streak": "legendary",
 }
 BADGE_REWARDS = {"common": 50, "rare": 150, "epic": 500, "legendary": 1500}
+# The day badges started paying. Badges earned before it are paid once when the bot starts (badge_backpay).
+BADGE_REWARDS_SINCE = "2026-11-06"
 
 # /work: a short task once per WORK_COOLDOWN seconds. A right answer pays the full amount, a wrong one a little.
 WORK_COOLDOWN = 3600
@@ -103,8 +105,9 @@ SLOTS_RESULT_DELAY_MARGIN = 1.0
 # Slots autoplay: spins with a still picture instead of the animation, one every AUTOPLAY_DELAY seconds.
 AUTOPLAY_MAX_SPINS = 50
 AUTOPLAY_BUTTON_SPINS = 10      # spins started by the "Auto" button
-AUTOPLAY_DELAY = 1.2
+AUTOPLAY_DELAY = 2.2           # long enough for Discord to load the picture and the player to see it
 AUTOPLAY_STOP_MULTIPLIER = 10   # autoplay pauses on a win of this many bets, so the player sees it
+AUTOPLAY_LOG_SIZE = 5           # recent spins listed under the picture
 
 # Game timeouts (in seconds)
 GAME_TIMEOUT = 60

@@ -230,3 +230,51 @@ def test_low_balances_are_not_asked(db, flip_bot):
     db.set_balance(1, 40)
     flip(flip_bot, 40)
     assert db.get_balance(1) == 0
+
+
+# ---------- one-time pay for badges collected before rewards ----------
+
+def old_database_with_badges(tmp_path):
+    import sqlite3
+    path = tmp_path / "before_rewards.db"
+    conn = sqlite3.connect(path)
+    conn.executescript("""
+        CREATE TABLE currency (user_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 100, last_claim_date TEXT);
+        INSERT INTO currency (user_id, balance) VALUES (1, 100), (2, 20000), (3, 50);
+        CREATE TABLE badges (user_id INTEGER NOT NULL, badge TEXT NOT NULL, earned_at TEXT NOT NULL,
+                             PRIMARY KEY (user_id, badge));
+        INSERT INTO badges VALUES
+            (1, 'first_win', '2026-10-30'), (1, 'spins_100', '2026-11-02'),
+            (2, 'rich', '2026-10-31'), (2, 'podium', '2026-11-01'), (2, 'first_win', '2026-10-30'),
+            (3, 'first_win', '2026-11-06'), (3, 'duelist', '2026-11-06');
+    """)
+    conn.close()
+    return path
+
+
+def test_old_badges_are_paid_once(db, tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_FILE", str(old_database_with_badges(tmp_path)))
+    db.init_db()
+    db.init_db()  # only the first start pays
+    assert db.get_balance(1) == 100 + BADGE_REWARDS["common"] + BADGE_REWARDS["rare"]
+    assert db.get_balance(2) == 20000 + BADGE_REWARDS["epic"] + BADGE_REWARDS["legendary"] + BADGE_REWARDS["common"]
+    assert db.get_balance(3) == 50, "badges from the day rewards started were already paid by the game"
+    assert db.get_bot_stats()["events"][0][3:] == ("badges", 2050, "3 old badges")
+
+
+def test_players_are_told_once(db, tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_FILE", str(old_database_with_badges(tmp_path)))
+    db.init_db()
+
+    async def go():
+        client = main.BankRollBot()
+        sends = []
+        for user_id in (1, 1, 3):
+            interaction = make_interaction(user_id)
+            await client.maybe_tell_backpay(interaction)
+            sends.append(interaction.followup.send)
+        return sends
+    first, second, other = asyncio.run(go())
+    assert "+200 coins" in first.call_args.args[0] and "2 badges" in first.call_args.args[0]
+    assert first.call_args.kwargs["ephemeral"] is True
+    assert second.await_count == 0 and other.await_count == 0
