@@ -32,6 +32,17 @@ def db(tmp_path, monkeypatch):
     return database
 
 
+@pytest.fixture(autouse=True)
+def no_rewards(request, monkeypatch):
+    """
+    Coins for new badges and levels would change every balance a game test checks, so they're off
+    unless a test is marked with @pytest.mark.rewards.
+    """
+    if "rewards" not in request.keywords:
+        from bot import progression
+        monkeypatch.setattr(progression, "reward_for", lambda *args: 0)
+
+
 def make_user(user_id: int, name: str = None, global_name: str = None, bot: bool = False):
     user = MagicMock()
     user.id = user_id

@@ -11,7 +11,7 @@ import math
 import random
 from functools import lru_cache
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter
 
 from .slots_gif import (
     CABINET_BOTTOM, CABINET_TOP, GOLD_DARK, GOLD_LIGHT, GREEN, LAST_FRAME_MS, MUTED, RED,
@@ -20,7 +20,9 @@ from .slots_gif import (
 
 WIDTH, HEIGHT = 400, 440
 COIN_SIZE = 140
-EDGE_DEPTH = 16       # how thick the coin looks when seen from the side
+EDGE_DEPTH = 26       # how thick the coin looks when seen from the side
+REST_TILT = 0.38      # radians: the coin leans back a little, so its edge shows even when it faces you
+EDGE_RIDGES = 28      # reeding lines across the visible half of the edge
 FLOOR_Y = 268         # where the coin rests (its center)
 FLIP_HEIGHT = 112     # how high it rises
 FRAMES = 20
@@ -83,9 +85,71 @@ def _background() -> Image.Image:
     return frame
 
 
+# A king's head in profile for heads, in a 0..1 box, facing left
+PROFILE = [(0.62, 1.0), (0.60, 0.84), (0.68, 0.74), (0.73, 0.58), (0.72, 0.42), (0.66, 0.30), (0.56, 0.24),
+           (0.44, 0.23), (0.35, 0.27), (0.30, 0.35), (0.285, 0.43), (0.26, 0.47), (0.19, 0.555), (0.20, 0.58),
+           (0.255, 0.595), (0.245, 0.625), (0.225, 0.645), (0.245, 0.665), (0.235, 0.695), (0.24, 0.735),
+           (0.29, 0.775), (0.37, 0.79), (0.40, 0.88), (0.38, 1.0)]
+CROWN = [(0.33, 0.29), (0.66, 0.31), (0.66, 0.22), (0.60, 0.07), (0.55, 0.19), (0.495, 0.03),
+         (0.44, 0.18), (0.38, 0.08), (0.33, 0.21)]
+
+
+def _emblem(face: str, size: int) -> tuple[Image.Image, list]:
+    """
+    The picture struck on a coin face: a crowned king for heads, a star in a laurel wreath for tails.
+    Returns the raised shapes as a mask and the carved lines as (points, width).
+    """
+    box_left, box_top, box = size * 0.17, size * 0.15, size * 0.66
+    mask = Image.new("L", (size, size), 0)
+    draw = ImageDraw.Draw(mask)
+
+    def at(x, y):
+        return box_left + x * box, box_top + y * box
+
+    if face == "heads":
+        draw.polygon([at(x, y) for x, y in PROFILE], fill=255)
+        draw.polygon([at(x, y) for x, y in CROWN], fill=255)
+        ball = box * 0.028
+        for x, y in [(0.60, 0.07), (0.495, 0.03), (0.38, 0.08)]:
+            cx, cy = at(x, y)
+            draw.ellipse((cx - ball, cy - ball, cx + ball, cy + ball), fill=255)
+        carved = [
+            ([at(0.33, 0.255), at(0.66, 0.275)], 4),                              # crown band
+            ([at(0.30, 0.445), at(0.345, 0.45)], 5),                              # eye
+            ([at(0.58, 0.44), at(0.61, 0.49), at(0.60, 0.55), at(0.57, 0.57)], 5),  # ear
+            ([at(0.34, 0.80), at(0.66, 0.80)], 3),                                # where the bust ends
+        ]
+        return mask, carved
+
+    cx, cy = at(0.5, 0.47)
+    outer, inner = box * 0.2, box * 0.085
+    draw.polygon([(cx + (outer if i % 2 == 0 else inner) * math.cos(-math.pi / 2 + i * math.pi / 5),
+                   cy + (outer if i % 2 == 0 else inner) * math.sin(-math.pi / 2 + i * math.pi / 5))
+                  for i in range(10)], fill=255)
+    # Two laurel branches: a stem along a circle with a pair of leaves at each step
+    ring = box * 0.40
+    leaf = Image.new("L", (int(box * 0.16), int(box * 0.07)), 0)
+    ImageDraw.Draw(leaf).ellipse((0, 0, leaf.width - 1, leaf.height - 1), fill=255)
+    for side in (-1, 1):
+        stem = []
+        for step in range(9):
+            angle = math.radians(115 + step * 15)
+            x = cx - side * ring * math.cos(angle)
+            y = cy - ring * math.sin(angle) + box * 0.03
+            stem.append((x, y))
+            tangent = math.degrees(angle) + (90 if side == 1 else -90)
+            for pair in (-1, 1):
+                rotated = leaf.rotate(-side * (tangent + pair * 35) + 180, expand=True, resample=Image.BICUBIC)
+                shift = pair * box * 0.035
+                mask.paste(255, (int(x - rotated.width / 2 - shift * math.cos(angle) * side),
+                                 int(y - rotated.height / 2 - shift * math.sin(angle))), rotated)
+        draw.line(stem, fill=255, width=6)
+    return mask, []
+
+
 @lru_cache(maxsize=None)
 def _coin_face(face: str) -> Image.Image:
-    """The coin seen head-on, with a reeded rim, a metallic face and a raised letter."""
+    """The coin seen head-on, with a reeded rim, a metallic face and a raised picture."""
     size = COIN_SIZE * 3
     center = size / 2
 
@@ -115,15 +179,35 @@ def _coin_face(face: str) -> Image.Image:
     recess_mask = Image.new("L", (inner_size, inner_size), 0)
     ImageDraw.Draw(recess_mask).ellipse((0, 0, inner_size - 1, inner_size - 1), fill=255)
     coin.paste(recess, (inset, inset), recess_mask)
-    draw.ellipse((inset, inset, size - inset - 1, size - inset - 1), outline=(136, 88, 14, 255), width=5)
-    draw.ellipse((inset + 8, inset + 8, size - inset - 9, size - inset - 9), outline=(255, 234, 150, 255), width=3)
 
-    # A raised letter: a light edge above, a dark edge below
-    letter = "H" if face == "heads" else "T"
-    font = _font(200)
-    draw.text((center + 5, center + 5), letter, font=font, fill=(112, 68, 8, 255), anchor="mm")
-    draw.text((center - 4, center - 4), letter, font=font, fill=(255, 240, 170, 255), anchor="mm")
-    draw.text((center, center), letter, font=font, fill=(216, 150, 30, 255), anchor="mm")
+    # Light and shade: the raised rim is lit on the upper left, and casts a shadow into the recess there
+    shading = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    shade = ImageDraw.Draw(shading)
+    rim = (12, 12, size - 13, size - 13)
+    shade.arc(rim, 150, 300, fill=(255, 250, 210, 170), width=16)
+    shade.arc(rim, 330, 120, fill=(90, 50, 0, 150), width=16)
+    edge = (inset + 2, inset + 2, size - inset - 3, size - inset - 3)
+    shade.arc(edge, 150, 300, fill=(80, 44, 0, 190), width=14)
+    shade.arc(edge, 330, 120, fill=(255, 244, 190, 170), width=10)
+    coin.alpha_composite(shading.filter(ImageFilter.GaussianBlur(5)))
+    draw.ellipse((inset, inset, size - inset - 1, size - inset - 1), outline=(136, 88, 14, 255), width=4)
+
+    # The raised picture: a soft shadow below right, a lit edge above left and a gold gradient on top
+    picture, carved = _emblem(face, size)
+    shadow = Image.new("L", (size, size), 0)
+    shadow.paste(picture, (8, 9))
+    coin.paste((70, 40, 4), (0, 0), shadow.filter(ImageFilter.GaussianBlur(4)).point(lambda v: v * 3 // 4))
+    lit = Image.new("L", (size, size), 0)
+    lit.paste(picture, (-3, -3))
+    coin.paste((255, 244, 186), (0, 0), lit)
+    coin.paste(_vertical_gradient((size, size), (255, 222, 120), (196, 132, 24)), (0, 0), picture)
+    # A bevel just inside the outline: bright along the top left, dark along the bottom right
+    for shift, color in (((4, 4), (255, 240, 170)), ((-4, -4), (140, 88, 12))):
+        moved = Image.new("L", (size, size), 0)
+        moved.paste(picture, shift)
+        coin.paste(color, (0, 0), ImageChops.subtract(picture, moved))
+    for points, width in carved:
+        draw.line(points, fill=(130, 82, 12, 255), width=width, joint="curve")
 
     # Gloss in the upper left
     gloss = Image.new("L", (size, size), 0)
@@ -140,17 +224,25 @@ def _coin_edge(height: int) -> Image.Image:
     slice_img = Image.new("L", (COIN_SIZE * 2, height * 2), 0)
     ImageDraw.Draw(slice_img).ellipse((0, 0, COIN_SIZE * 2 - 1, height * 2 - 1), fill=255)
     mask = slice_img.resize((COIN_SIZE, height), Image.LANCZOS)
-    gradient = _vertical_gradient((COIN_SIZE, height), EDGE_LIGHT, EDGE_DARK).convert("RGBA")
-    gradient.putalpha(mask)
-    return gradient
+    # A cylinder: brightest facing you, darker towards the sides, with reeding lines that bunch up at the sides
+    row = Image.new("RGB", (COIN_SIZE, 1))
+    radius = COIN_SIZE / 2
+    for x in range(COIN_SIZE):
+        theta = math.acos(max(-1.0, min(1.0, (x + 0.5 - radius) / radius)))
+        light = 0.3 + 0.7 * math.sin(theta) ** 1.5
+        ridge = 0.8 if int(theta / math.pi * EDGE_RIDGES * 2) % 2 else 1.0
+        row.putpixel((x, 0), tuple(int((d + (l - d) * light) * ridge) for l, d in zip(EDGE_LIGHT, EDGE_DARK)))
+    edge = row.resize((COIN_SIZE, height)).convert("RGBA")
+    edge.putalpha(mask)
+    return edge
 
 
 def _draw_coin(frame: Image.Image, face: str, angle: float, center_y: float):
-    """Draw the coin rotated around its horizontal axis."""
-    tilt = abs(math.cos(angle))
-    height = max(6, int(COIN_SIZE * tilt))
+    """Draw the coin rotated around its horizontal axis (angle 0 = facing you, apart from REST_TILT)."""
+    seen = angle + REST_TILT
+    height = max(6, int(COIN_SIZE * abs(math.cos(seen))))
     left = (WIDTH - COIN_SIZE) // 2
-    depth = int(EDGE_DEPTH * abs(math.sin(angle)))
+    depth = int(EDGE_DEPTH * abs(math.sin(seen)))
     top = int(center_y - height / 2 - depth / 2)
 
     edge = _coin_edge(height)
@@ -212,7 +304,7 @@ def render_flip_gif(outcome: str, guess: str, bet: int, seed: int | None = None,
     for number in range(FRAMES):
         t = number / FRAMES
         angle = TURNS * 2 * math.pi * (1 - (1 - t) ** 2)
-        frame = _scene(outcome if math.cos(angle) >= 0 else other, angle, FLIP_HEIGHT * math.sin(math.pi * t))
+        frame = _scene(outcome if math.cos(angle + REST_TILT) >= 0 else other, angle, FLIP_HEIGHT * math.sin(math.pi * t))
         _caption(frame, chosen, MUTED, 19)
         frames.append(frame)
         durations.append(FRAME_MS)

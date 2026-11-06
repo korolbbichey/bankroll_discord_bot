@@ -28,7 +28,7 @@ REEL_GAP = 4
 # The lights must not change between frames: they sit on the edge of the picture, so GIF would have
 # to rewrite almost the whole image each time, which makes the file about 3 times bigger.
 FRAME_MS = 80
-STOP_FRAMES = (9, 13, 17)   # the frame each reel stops on, left to right
+STOP_FRAMES = (6, 9, 12)    # the frame each reel stops on, left to right
 EXTRA_SYMBOLS = 12          # how many symbols scroll past before a reel lands
 BLUR_ABOVE_SPEED = 30       # pixels per frame
 WIN_FRAMES = 8
@@ -264,6 +264,16 @@ def _reels_frame(windows: list[Image.Image], highlight: set[tuple[int, int]] = f
         frame.alpha_composite(window, (REELS_LEFT + col * CELL, REELS_TOP))
     frame.alpha_composite(_reel_shade(), (REELS_LEFT, REELS_TOP))
     return frame
+
+
+def render_result_png(grid: list[list[str]], winning_cells: set[tuple[int, int]], bet: int, payout: int) -> bytes:
+    """The last frame of a spin as a still picture, for autoplay where there's no time for the animation."""
+    windows = [_reel_window([grid[row][col] for row in range(3)], 1.0, False) for col in range(3)]
+    frame = _reels_frame(windows, winning_cells, glow=1.0 if winning_cells else 0.0)
+    _caption(frame, *_result_caption(payout, bet))
+    output = io.BytesIO()
+    frame.convert("RGB").quantize(colors=200, method=Image.MEDIANCUT, dither=Image.NONE).save(output, format="PNG")
+    return output.getvalue()
 
 
 def render_spin_gif(grid: list[list[str]], winning_cells: set[tuple[int, int]], bet: int, payout: int,

@@ -294,7 +294,7 @@ def test_profile_falls_back_to_text(bot, db, monkeypatch):
     embed = text_profile(bot, monkeypatch, make_interaction(1, user=make_user(1, global_name="Alice")))
     assert embed.title == "🪙 Alice"
     assert embed.description.startswith("**Rookie** · Level 1\n")
-    assert [f.name for f in embed.fields] == ["💰 Wallet", "🏅 Badges (0/13)", "📊 Stats"]
+    assert [f.name for f in embed.fields] == ["💰 Wallet", "🏅 Badges (0/21)", "📊 Stats"]
     assert "2,500" in embed.fields[0].value and "Rank #1" in embed.fields[0].value
     assert "None yet" in embed.fields[1].value and "🔒 Next:" in embed.fields[1].value
     assert "Lucky symbol 🍒" in embed.fields[2].value
@@ -311,7 +311,7 @@ def test_text_profile_shows_level_badges_and_favorite_game(bot, db, monkeypatch)
     db.update_blackjack_stats(1, 10, True)
     embed = text_profile(bot, monkeypatch, make_interaction(1, user=make_user(1, global_name="Alice")))
     assert "Level 2" in embed.description and "35 / 200 XP" in embed.description
-    assert embed.fields[1].name == "🏅 Badges (2/13)"
+    assert embed.fields[1].name == "🏅 Badges (2/21)"
     assert "🍀 First Win" in embed.fields[1].value and "🃏 Natural 21" in embed.fields[1].value
     assert "Favorite game: **Slots**" in embed.fields[2].value
     assert "📅 Playing since" in embed.fields[2].value
@@ -326,7 +326,7 @@ def test_badges_command(bot, db):
         assert interaction.response.send_message.call_args.kwargs["ephemeral"] is True
         return sent_embed(interaction.response.send_message)
     embed = asyncio.run(go())
-    assert embed.title == "🏅 Alice's badges — 1 / 13"
+    assert embed.title == "🏅 Alice's badges — 1 / 21"
     assert "🍀 **First Win** — Win any game" in embed.description
     assert "🔒 **Explorer**" in embed.description
 
@@ -417,8 +417,8 @@ def test_help_embed_lists_payouts(bot):
 
 def test_announcement_embed():
     embed = main.general.build_announcement_embed()
-    assert embed.title == "🎰 Bankroll Visual Update!"
-    assert [f.name for f in embed.fields] == ["🎮 Animated games", "🏅 Levels and badges", "🖼️ Player cards", "🌍 Play anywhere"]
-    assert all(game in embed.fields[0].value for game in ("/slots", "/coinflip", "/blackjack"))
+    assert embed.title == "🎡 Roulette is here!"
+    assert [f.name for f in embed.fields] == ["🎡 Roulette", "⚔️ Duels", "💼 More ways to earn", "🏅 8 new badges", "🔁 Slots autoplay", "✨ Also new"]
+    assert "/roulette" in embed.fields[0].value and "/duel" in embed.fields[1].value and "/bailout" in embed.fields[5].value
     assert discord.Color.gold() == embed.color
     assert len(embed) <= 6000, "within Discord's embed size limit"

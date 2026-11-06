@@ -15,8 +15,8 @@ from dotenv import load_dotenv
 from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
 from bot.database import init_db, mark_announcement_shown, refund_pending_duels, save_username
 from bot.utils import display_name, avatar_hash, InvalidBet
-from bot.commands import economy, admin, general
-from bot.games import slots, blackjack, coinflip, duel
+from bot.commands import economy, admin, general, work
+from bot.games import slots, blackjack, coinflip, duel, roulette
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -60,10 +60,12 @@ class BankRollBot(commands.Bot):
         economy.setup(self)
         admin.setup(self)
         general.setup(self)
+        work.setup(self)
 
         slots.setup(self)
         blackjack.setup(self)
         coinflip.setup(self)
+        roulette.setup(self)
         duel.setup(self)
 
         self.tree.on_error = self.on_app_command_error

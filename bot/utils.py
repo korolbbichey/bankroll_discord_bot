@@ -7,8 +7,8 @@ import asyncio
 import discord
 from discord import app_commands
 
-from .config import MIN_BET, MAX_BET
-from .database import get_balance
+from .config import MIN_BET, MAX_BET, CONFIRM_BET_SHARE, CONFIRM_BET_MIN_BALANCE
+from .database import get_balance, set_bet_confirmation, wants_bet_confirmation
 
 
 # Drawing images briefly takes tens of MB of memory, so only a couple are drawn at once.
@@ -83,6 +83,54 @@ class BetTransformer(app_commands.Transformer):
 
 
 Bet = app_commands.Transform[int, BetTransformer]
+
+
+class ConfirmBetView(discord.ui.View):
+    """Asks once before a bet of more than half the balance. Nothing is taken until the player confirms."""
+
+    def __init__(self, user_id: int, start):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.start = start  # async function that starts the game for an interaction
+        self.used = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if self.used:
+            await interaction.response.send_message("You already answered.", ephemeral=True)
+            return False
+        self.used = True
+        self.stop()
+        return True
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, _):
+        await self.start(interaction)
+
+    @discord.ui.button(label="Confirm, don't ask again", style=discord.ButtonStyle.secondary)
+    async def confirm_always(self, interaction: discord.Interaction, _):
+        set_bet_confirmation(self.user_id, False)
+        await self.start(interaction)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, _):
+        await interaction.response.edit_message(content="👍 Bet cancelled.", view=None)
+
+
+async def confirm_big_bet(interaction: discord.Interaction, bet: int, start) -> bool:
+    """
+    Ask before a bet of more than half the balance (from CONFIRM_BET_MIN_BALANCE coins).
+    Returns True if the question was asked: the caller stops, and `start(interaction)` runs on Confirm.
+    """
+    user_id = interaction.user.id
+    balance = get_balance(user_id)
+    if (balance < CONFIRM_BET_MIN_BALANCE or bet <= balance * CONFIRM_BET_SHARE or bet > balance
+            or not wants_bet_confirmation(user_id)):
+        return False
+    share = "all" if bet == balance else f"{bet / balance:.0%}"
+    await interaction.response.send_message(
+        f"⚠️ That's **{share}** of your coins: bet **{fmt(bet)}** of **{fmt(balance)}**?",
+        view=ConfirmBetView(user_id, start), ephemeral=True)
+    return True
 
 
 def validate_bet(bet: int, balance: int) -> tuple[bool, str]:

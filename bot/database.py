@@ -87,6 +87,14 @@ def init_db():
             cursor.execute("ALTER TABLE currency ADD COLUMN avatar_hash TEXT")
         if "last_bailout" not in currency_columns:
             cursor.execute("ALTER TABLE currency ADD COLUMN last_bailout TEXT")
+        # /work: when the last shift started (ISO time, UTC) and how many shifts the player has done
+        if "last_work" not in currency_columns:
+            cursor.execute("ALTER TABLE currency ADD COLUMN last_work TEXT")
+        if "work_shifts" not in currency_columns:
+            cursor.execute("ALTER TABLE currency ADD COLUMN work_shifts INTEGER DEFAULT 0")
+        # 0 = the player turned off the confirmation for bets over half their balance
+        if "confirm_big_bets" not in currency_columns:
+            cursor.execute("ALTER TABLE currency ADD COLUMN confirm_big_bets INTEGER DEFAULT 1")
 
         # ---- Statistics for the bot owner ----
         cursor.execute('''CREATE TABLE IF NOT EXISTS player_days (
@@ -385,6 +393,43 @@ def claim_bailout(user_id, now: datetime | None = None) -> tuple[str, int]:
     if claimed:
         return "ok", balance
     return ("has_coins" if balance > 0 else "already_claimed"), balance
+
+
+def start_work_shift(user_id, cooldown: int, now: datetime | None = None) -> tuple[bool, int, int]:
+    """
+    Start a /work shift if the last one was at least `cooldown` seconds ago.
+    Returns (started, seconds until the next shift, shifts done including this one).
+    """
+    now = now or datetime.now(timezone.utc)
+    earliest = (now - timedelta(seconds=cooldown)).isoformat(timespec="seconds")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        _ensure_account(cursor, user_id)
+        # The cooldown check and the update are one statement, so two shifts can't start at once.
+        cursor.execute("""
+            UPDATE currency SET last_work = ?, work_shifts = COALESCE(work_shifts, 0) + 1
+            WHERE user_id = ? AND (last_work IS NULL OR last_work <= ?)
+        """, (now.isoformat(timespec="seconds"), user_id, earliest))
+        started = cursor.rowcount == 1
+        last_work, shifts = cursor.execute("SELECT last_work, COALESCE(work_shifts, 0) FROM currency WHERE user_id = ?",
+                                           (user_id,)).fetchone()
+    if started:
+        return True, cooldown, shifts
+    left = cooldown - (now - datetime.fromisoformat(last_work)).total_seconds()
+    return False, max(1, int(left)), shifts
+
+
+def wants_bet_confirmation(user_id) -> bool:
+    with get_connection() as conn:
+        row = conn.execute("SELECT confirm_big_bets FROM currency WHERE user_id = ?", (user_id,)).fetchone()
+    return row is None or row[0] != 0
+
+
+def set_bet_confirmation(user_id, enabled: bool):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        _ensure_account(cursor, user_id)
+        cursor.execute("UPDATE currency SET confirm_big_bets = ? WHERE user_id = ?", (int(enabled), user_id))
 
 
 def mark_announcement_shown(target_id, announcement_id: str) -> bool:

@@ -11,7 +11,7 @@ import logging
 
 from ..config import GAME_TIMEOUT
 from ..database import get_balance, try_debit, credit, update_blackjack_stats
-from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS
+from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet
 from ..progression import Progress, track_game, send_notice
 from ..blackjack_card import render_table
 from ..slots_gif import GOLD_LIGHT, GREEN, MUTED, RED
@@ -262,4 +262,5 @@ def setup(client):
     @client.tree.command(name="blackjack", description="Play a game of Blackjack with a bet")
     @app_commands.describe(bet="Coins to bet: a number, all or half")
     async def blackjack(interaction: discord.Interaction, bet: Bet):
-        await start_blackjack(interaction, bet)
+        if not await confirm_big_bet(interaction, bet, lambda i: start_blackjack(i, bet)):
+            await start_blackjack(interaction, bet)

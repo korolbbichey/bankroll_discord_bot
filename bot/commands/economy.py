@@ -10,9 +10,12 @@ from datetime import datetime
 import discord
 from discord import app_commands
 
-from ..config import BAILOUT_AMOUNT, MAX_TRANSFER, MIN_BET, QUICK_PLAY_BET, STARTING_BALANCE
+from ..config import (
+    BADGE_RARITY, BADGE_REWARDS, BAILOUT_AMOUNT, MAX_TRANSFER, MIN_BET, QUICK_PLAY_BET, STARTING_BALANCE,
+)
 from ..games.blackjack import start_blackjack
 from ..games.coinflip import start_coinflip
+from ..games.roulette import OUTSIDE_BY_KEY, start_roulette
 from ..games.slots import start_slots
 from ..database import (
     get_balance, get_leaderboard, get_rank, get_player_count, claim_daily_reward, get_daily_streak,
@@ -26,8 +29,10 @@ from ..progression import (
 )
 
 LEADERBOARD_SIZE = 10
-GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack", "duel": "Duels"}
+GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack", "roulette": "Roulette", "duel": "Duels"}
 WEEK_STREAK = 7
+RARITY_MARKS = {"common": "🥉", "rare": "🥈", "epic": "🥇", "legendary": "💎"}
+MONTH_STREAK = 30
 AVATAR_TIMEOUT = 3  # seconds per avatar
 
 logger = logging.getLogger(__name__)
@@ -76,6 +81,10 @@ class QuickPlayView(discord.ui.View):
     @discord.ui.button(label="🃏 Blackjack", style=discord.ButtonStyle.primary)
     async def blackjack(self, interaction: discord.Interaction, _):
         await start_blackjack(interaction, self.quick_bet(interaction.user.id))
+
+    @discord.ui.button(label="🔴 Roulette red", style=discord.ButtonStyle.primary)
+    async def roulette(self, interaction: discord.Interaction, _):
+        await start_roulette(interaction, OUTSIDE_BY_KEY["red"], self.quick_bet(interaction.user.id))
 
 
 def setup(client):
@@ -152,8 +161,9 @@ def setup(client):
         embed.add_field(name="💰 Balance", value=fmt(claim.balance), inline=True)
         embed.set_footer(text=f"Come back in {wait} for {fmt(claim.next_reward)} coins. Miss a day and the streak resets.")
         await interaction.response.send_message(embed=embed, ephemeral=True, view=QuickPlayView())
-        await send_notice(interaction, safe_badges(
-            interaction.user.id, ["week_streak"] if claim.streak >= WEEK_STREAK else [], check_wealth=True))
+        streak_badges = [badge for badge, days in (("week_streak", WEEK_STREAK), ("month_streak", MONTH_STREAK))
+                         if claim.streak >= days]
+        await send_notice(interaction, safe_badges(interaction.user.id, streak_badges, check_wealth=True))
 
     async def resolve_unknown_players(rows: list) -> list:
         """
@@ -275,7 +285,7 @@ def setup(client):
         embed.add_field(name=f"🏅 Badges ({len(unlocked)}/{len(BADGES)})", value="\n".join(badge_lines), inline=False)
 
         stat_lines = [
-            f"🎰 **Slots & Coinflip** — {games_text(games)} · {win_rate(wins, losses)} wins · best +{fmt(largest_win)}",
+            f"🎰 **Slots, Coinflip & Roulette** — {games_text(games)} · {win_rate(wins, losses)} wins · best +{fmt(largest_win)}",
             f"🃏 **Blackjack** — {games_text(bj_wins + bj_losses)} · {win_rate(bj_wins, bj_losses)} wins · best +{fmt(bj_largest_win)}",
             f"💸 Total won: **{fmt(total_earned + bj_total_earned)}** coins",
         ]
@@ -364,8 +374,10 @@ def setup(client):
             title=f"🏅 {display_name(target)}'s badges — {len(earned & BADGES_BY_ID.keys())} / {len(BADGES)}",
             description="\n".join(
                 f"{badge.emoji if badge.id in earned else '🔒'} **{badge.name}** — {badge.description}"
+                f" · {RARITY_MARKS[BADGE_RARITY[badge.id]]} +{fmt(BADGE_REWARDS[BADGE_RARITY[badge.id]])}"
                 for badge in BADGES
             ),
             color=discord.Color.gold(),
         )
+        embed.set_footer(text="🥉 common · 🥈 rare · 🥇 epic · 💎 legendary — each badge pays its coins once")
         await interaction.response.send_message(embed=embed, ephemeral=True)

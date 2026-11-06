@@ -12,7 +12,7 @@ import logging
 from ..coinflip_gif import animation_seconds, render_flip_gif
 from ..config import RESULT_DELAY_MARGIN
 from ..database import get_balance, try_debit, credit, update_stats
-from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS
+from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet
 from ..progression import track_game, send_notice
 
 logger = logging.getLogger(__name__)
@@ -77,4 +77,5 @@ def setup(client):
         app_commands.Choice(name="Tails", value="tails")
     ])
     async def coinflip(interaction: discord.Interaction, guess: app_commands.Choice[str], bet: Bet):
-        await start_coinflip(interaction, guess.value, bet)
+        if not await confirm_big_bet(interaction, bet, lambda i: start_coinflip(i, guess.value, bet)):
+            await start_coinflip(interaction, guess.value, bet)

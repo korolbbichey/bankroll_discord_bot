@@ -1,13 +1,15 @@
 # BankRoll Discord Bot
 
-A fun entertainment Discord bot featuring casino-style games with virtual currency. Users can play slots, blackjack, and coinflip while tracking their stats and competing on the leaderboard.
+A fun entertainment Discord bot featuring casino-style games with virtual currency. Users can play slots, blackjack, coinflip and roulette while tracking their stats and competing on the leaderboard.
 
 ## Features
 
 ### Interactive Games
 - **Slots** (`/slots <bet>`) - 3x3 slot machine with spins drawn as animated GIFs (`bot/slots_gif.py`), 8 paying lines, and adjustable bets (~95% return)
+  - **Autoplay** — `/slots <bet> spins:<2-50> stop_loss:<coins>` or the **Auto ×10** button. Spins show a still picture instead of the animation and stop early on a 10x win, at the stop-loss, when the coins run out or when the player presses Stop
 - **Blackjack** (`/blackjack <bet>`) - A drawn table (`bot/blackjack_card.py`), classic 21 with Hit/Stand/Double actions, natural blackjack pays 3:2
-- **Coin Flip** (`/coinflip <guess> <bet>`) - An animated coin (`bot/coinflip_gif.py`), simple heads/tails game with 2x payout
+- **Coin Flip** (`/coinflip <guess> <bet>`) - An animated coin with a crowned king and a laurel wreath on its sides (`bot/coinflip_gif.py`), simple heads/tails game with 2x payout
+- **Roulette** (`/roulette <on> <bet>`) - An animated European wheel (`bot/roulette_gif.py`). Bet on red/black, odd/even, 1-18/19-36 (2x), a dozen (3x) or a single number 0-36 (36x). Real payouts, so the only house edge is the zero (~97.3% return)
 
 `<bet>` can be a number (`500`, `1,000`, `2.5k`), `all` or `half` of your balance (capped at the maximum bet). Discord suggests `all` / `half` with the actual amounts while typing.
 
@@ -17,13 +19,16 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 - **Pay** (`/pay <@user> <amount>`) - Send coins to another player
 - **Duel** (`/duel <@user> <bet>`) - Challenge a player to a coin flip; the winner takes both bets. Bets of duels left unanswered by a restart are refunded at startup
 - **Bailout** (`/bailout`) - 25 coins for an empty wallet, once per UTC day
+- **Work** (`/work`) - A quick casino job once an hour: a random task (bartender, cashier, security, slot mechanic, dealer) answered with buttons. A right answer pays 20-35 coins plus a bonus for the player's job rank (Trainee, Dealer, Pit Boss, Casino Manager, promoted by shifts worked); a wrong or late answer pays 8
+- **Rewards** - Every new badge pays coins once by its rarity (common 50, rare 150, epic 500, legendary 1,500), and every level-up pays the new level x 25
+- **Big bet check** - A bet of more than half the balance (from 100 coins) asks for a confirmation first; players can turn it off with "Confirm, don't ask again"
 - **Leaderboard** (`/leaderboard`) - An image card (`bot/leaderboard_card.py`) with a podium, the top 10 and your own position. Falls back to text if drawing fails
 - **Help** (`/help`) - Command list, slot payouts and Terms of Service
 
 ### User Profiles
 - **Profile** (`/profile [@user]`) - An image card drawn with Pillow (`bot/profile_card.py`; asset credits in `bot/assets/CREDITS.md`). Falls back to a text version if drawing fails. Avatars are downloaded only to draw the card and are never stored. It shows:
   - **Level and title** — every game gives XP (10, +5 for a win). Titles: 🪙 Rookie (1) → 🎲 Gambler (3) → 💼 High Roller (6) → 🎩 Card Shark (10) → 👑 Casino King (15) → 💎 Legend (25). The card color follows the title
-  - **Badges** — 13 achievements (first win, 100 spins, 💎💎💎 line, natural 21, 7-day streak, 10,000 coins, top 3, ...) plus a hint for the next one
+  - **Badges** — 21 achievements (first win, 100 spins, 💎💎💎 line, natural 21, duel wins, a roulette number, 7- and 30-day streaks, 10,000 coins, top 3, ...) plus a hint for the next one
   - **Stats** — games, win rate and best win per game, total won, favorite game and lucky symbol, playing since
 
 - **Badges** (`/badges [@user]`) - Every badge and how to earn it
@@ -62,7 +67,9 @@ bankroll_discord_bot/
 │       ├── __init__.py
 │       ├── slots.py       # Slot machine game
 │       ├── blackjack.py   # Blackjack game
-│       └── coinflip.py    # Coin flip game
+│       ├── coinflip.py    # Coin flip game
+│       ├── roulette.py    # Roulette game
+│       └── duel.py        # Duels between two players
 ```
 
 ## Installation

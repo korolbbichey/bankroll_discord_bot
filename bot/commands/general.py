@@ -4,10 +4,15 @@ General commands for the BankRoll Discord Bot.
 
 import discord
 
-from ..config import BAILOUT_AMOUNT, SLOT_PAYOUTS, DAILY_STREAK_REWARDS, MIN_BET, MAX_BET
+from ..config import AUTOPLAY_MAX_SPINS, BAILOUT_AMOUNT, SLOT_PAYOUTS, DAILY_STREAK_REWARDS, MIN_BET, MAX_BET
 from ..utils import fmt
 
 TOS_URL = "https://gist.github.com/korolbbichey/ec9757512835365e37c3c8823d096ccb"
+
+ROULETTE_PAYOUTS = (
+    "🔴 Red / ⚫ Black · Odd / Even · 1-18 / 19-36 — **2x**\n"
+    "1st / 2nd / 3rd 12 — **3x** · A single number 0-36 — **36x**"
+)
 
 PLAY_ANYWHERE = (
     "Add Bankroll to your profile and use it on any server or in DMs — "
@@ -23,23 +28,27 @@ def build_help_embed() -> discord.Embed:
     )
     embed.add_field(name="🎮 Games", value=(
         "`/slots <bet>` — 3x3 slot machine, every line pays\n"
+        f"`/slots <bet> spins:20 stop_loss:100` — autoplay up to {AUTOPLAY_MAX_SPINS} spins\n"
         "`/blackjack <bet>` — Hit, Stand or Double down\n"
         "`/coinflip <guess> <bet>` — guess right to double your bet\n"
+        "`/roulette <on> <bet>` — bet on a color, odd/even, a dozen or a number\n"
         "`/duel <user> <bet>` — challenge a friend, the winner takes both bets\n"
         f"`<bet>`: {fmt(MIN_BET)}–{fmt(MAX_BET)} coins, or `all` / `half` of your balance"
     ), inline=False)
     embed.add_field(name="💰 Economy", value=(
         "`/balance [user]` — check a balance\n"
         f"`/daily_reward` — 💰 {fmt(DAILY_STREAK_REWARDS[0])}–{fmt(DAILY_STREAK_REWARDS[-1])} daily, grows with a 🔥 streak\n"
+        "`/work` — a quick casino job for coins, once an hour\n"
         f"`/bailout` — out of coins? Get 💰 {fmt(BAILOUT_AMOUNT)}, once a day\n"
         "`/pay <user> <amount>` — send coins to a friend\n"
         "`/leaderboard` — richest players and your position\n"
         "`/profile [user]` — player card: level, title and stats\n"
-        "`/badges [user]` — every badge and how to earn it"
+        "`/badges [user]` — every badge, how to earn it and the coins it pays"
     ), inline=False)
     embed.add_field(name="🎰 Slot payouts (per line)", value="\n".join(
         f"{combo} — **{multiplier}x**" for combo, multiplier in SLOT_PAYOUTS.items()
     ), inline=False)
+    embed.add_field(name="🎡 Roulette payouts", value=ROULETTE_PAYOUTS, inline=False)
     embed.add_field(name="🌍 Play anywhere", value=PLAY_ANYWHERE, inline=False)
     embed.add_field(name="📜 Terms of Service", value=f"[Read here]({TOS_URL})", inline=False)
     return embed
@@ -48,25 +57,34 @@ def build_help_embed() -> discord.Embed:
 def build_announcement_embed() -> discord.Embed:
     """The one-time update announcement (see ANNOUNCEMENT_ID in config)."""
     embed = discord.Embed(
-        title="🎰 Bankroll Visual Update!",
-        description="Every game got a brand new look. Here's what's new:",
+        title="🎡 Roulette is here!",
+        description="A new game, new ways to play with friends and more badges to collect:",
         color=discord.Color.gold(),
     )
-    embed.add_field(name="🎮 Animated games", value=(
-        "`/slots` — a real casino machine with spinning reels\n"
-        "`/coinflip` — a 3D coin flying through the air\n"
-        "`/blackjack` — a card table with real cards"
+    embed.add_field(name="🎡 Roulette", value=(
+        "`/roulette <on> <bet>` — an animated European wheel.\n" + ROULETTE_PAYOUTS
     ), inline=False)
-    embed.add_field(name="🏅 Levels and badges", value=(
-        "Every game gives XP: climb from 🪙 Rookie to 💎 Legend.\n"
-        "`/badges` — collect 13 achievements"
+    embed.add_field(name="⚔️ Duels", value=(
+        "`/duel <user> <bet>` — challenge a friend to a coin flip, the winner takes both bets"
     ), inline=False)
-    embed.add_field(name="🖼️ Player cards", value=(
-        "`/profile` — your own card with your avatar, level and stats\n"
-        "`/leaderboard` — a podium for the top 3"
+    embed.add_field(name="💼 More ways to earn", value=(
+        "`/work` — a quick casino job once an hour: serve drinks, count chips, catch cheaters. Get promoted for more pay\n"
+        "🏅 Badges now pay coins (up to 1,500), and so does every level-up"
     ), inline=False)
-    embed.add_field(name="🌍 Play anywhere", value=PLAY_ANYWHERE, inline=False)
-    embed.set_footer(text="Start with /help • Have fun!")
+    embed.add_field(name="🏅 8 new badges", value=(
+        "⚔️ Duelist · 🥇 Champion · 🎯 Bullseye · 🟢 Green Zero · 💰 Jackpot · 🗺️ Grand Tour · 🎖️ Veteran · ⚡ Unstoppable\n"
+        "`/badges` — see how to earn all 21 and what each pays"
+    ), inline=False)
+    embed.add_field(name="🔁 Slots autoplay", value=(
+        "Faster spins, plus autoplay: press **Auto** or use `/slots <bet> spins:20 stop_loss:100`.\n"
+        "It stops at your stop-loss, on a big win or when you press Stop."
+    ), inline=False)
+    embed.add_field(name="✨ Also new", value=(
+        "🪙 A 3D coin with a real king and a laurel wreath on its sides\n"
+        f"🛟 `/bailout` — out of coins? Get 💰 {fmt(BAILOUT_AMOUNT)} once a day\n"
+        "🎮 Quick-play buttons under `/daily_reward`"
+    ), inline=False)
+    embed.set_footer(text="Start with /help • Thanks for all the ideas, keep them coming!")
     return embed
 
 

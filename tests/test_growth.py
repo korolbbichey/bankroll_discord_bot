@@ -87,7 +87,7 @@ def test_daily_reward_offers_games(bot, db):
         await command(bot, "daily_reward").callback(interaction)
         return interaction.response.send_message.call_args.kwargs["view"]
     view = asyncio.run(go())
-    assert isinstance(view, QuickPlayView) and len(view.children) == 3
+    assert isinstance(view, QuickPlayView) and len(view.children) == 4
 
 
 def test_quick_bet_never_exceeds_the_balance(db):

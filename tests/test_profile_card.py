@@ -27,7 +27,7 @@ def avatar_png() -> bytes:
 
 def test_card_is_a_png_of_the_right_size():
     image = rendered_image(card_data())
-    assert image.format == "PNG" and image.size == (1000, 480)
+    assert image.format == "PNG" and image.size == (1000, 580)
 
 
 def test_card_draws_the_avatar():
@@ -58,10 +58,16 @@ def test_clean_name(name, expected):
 
 @pytest.mark.parametrize("name", ["小熊维尼 and friends", "A" * 200, "😀", "ع", ""])
 def test_any_name_can_be_drawn(name):
-    assert rendered_image(card_data(name=name)).size == (1000, 480)
+    assert rendered_image(card_data(name=name)).size == (1000, 580)
 
 
 def test_extreme_values_can_be_drawn():
     data = card_data(balance=10**15, games=10**9, best_win=10**12, streak=9999, rank=None, level=999,
                      xp_into_level=0, level_span=99800, earned_badges=set(BADGE_ICONS))
-    assert rendered_image(data).size == (1000, 480)
+    assert rendered_image(data).size == (1000, 580)
+
+
+def test_every_badge_has_a_rarity():
+    from bot.profile_card import BADGE_RARITY, RARITY_METALS
+    assert set(BADGE_RARITY) == set(BADGE_ICONS)
+    assert set(BADGE_RARITY.values()) <= set(RARITY_METALS)

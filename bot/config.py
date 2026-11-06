@@ -18,12 +18,12 @@ OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(" ", "").split("
 ADMIN_GUILD_ID = int(os.getenv("ADMIN_GUILD_ID") or 0) or None
 
 # Custom status shown under the bot's name. Set BOT_STATUS to change it, or to an empty value to hide it.
-BOT_STATUS = os.getenv("BOT_STATUS", "🎰 Big visual update! Type /help to start")
+BOT_STATUS = os.getenv("BOT_STATUS", "🎡 New: Roulette! Type /help to start")
 
 # One-time update notice, posted publicly once per server after the first command used there.
 # The embed itself is built in bot/commands/general.py (build_announcement_embed).
 # Change ANNOUNCEMENT_ID to show a new announcement to everyone again; set it to "" to disable.
-ANNOUNCEMENT_ID = "2026-10-visual-update"
+ANNOUNCEMENT_ID = "2026-11-roulette-update"
 
 # Economy settings
 MAX_BET = 10000
@@ -45,6 +45,31 @@ MAX_TRANSFER = 1_000_000
 # Progression: XP per finished game (any game) and bonus XP for a win.
 XP_PER_GAME = 10
 XP_PER_WIN = 5
+# Coins for reaching a level: the new level times this.
+LEVEL_UP_REWARD = 25
+
+# How hard each badge is to get: sets the color of its medal and the coins it gives once.
+BADGE_RARITY = {
+    "first_win": "common", "explorer": "common", "generous": "common", "coin_10": "common", "double_win": "common",
+    "spins_100": "rare", "natural": "rare", "week_streak": "rare", "duelist": "rare", "multi_line": "rare",
+    "max_bet": "rare",
+    "rich": "epic", "grand_tour": "epic", "bullseye": "epic", "duel_5": "epic", "jackpot": "epic",
+    "diamond_line": "legendary", "podium": "legendary", "zero": "legendary", "veteran": "legendary",
+    "month_streak": "legendary",
+}
+BADGE_REWARDS = {"common": 50, "rare": 150, "epic": 500, "legendary": 1500}
+
+# /work: a short task once per WORK_COOLDOWN seconds. A right answer pays the full amount, a wrong one a little.
+WORK_COOLDOWN = 3600
+WORK_PAY = (20, 35)
+WORK_PAY_WRONG = 8
+WORK_ANSWER_SECONDS = 20
+# (shifts needed, job title, bonus coins per shift)
+WORK_RANKS = [(0, "Trainee", 0), (10, "Dealer", 5), (30, "Pit Boss", 10), (75, "Casino Manager", 20)]
+
+# Bets over half the balance ask for a confirmation first, unless the player turned it off.
+CONFIRM_BET_SHARE = 0.5
+CONFIRM_BET_MIN_BALANCE = 100
 
 # Slot machine configuration
 SLOT_SYMBOLS = ["\U0001f34b", "\U0001f352", "\U0001f349", "\U0001f514", "⭐", "\U0001f48e"]
@@ -72,6 +97,14 @@ SLOT_PAYOUTS = {
 # An animated GIF starts when the player's client has loaded it, which is later than the upload finishing.
 # Result text waits this much longer (seconds) so it doesn't spoil the animation.
 RESULT_DELAY_MARGIN = 1.5
+# Slots are played many times in a row, so their result waits less.
+SLOTS_RESULT_DELAY_MARGIN = 1.0
+
+# Slots autoplay: spins with a still picture instead of the animation, one every AUTOPLAY_DELAY seconds.
+AUTOPLAY_MAX_SPINS = 50
+AUTOPLAY_BUTTON_SPINS = 10      # spins started by the "Auto" button
+AUTOPLAY_DELAY = 1.2
+AUTOPLAY_STOP_MULTIPLIER = 10   # autoplay pauses on a win of this many bets, so the player sees it
 
 # Game timeouts (in seconds)
 GAME_TIMEOUT = 60

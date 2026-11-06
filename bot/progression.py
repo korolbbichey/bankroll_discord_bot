@@ -11,9 +11,9 @@ from datetime import datetime, timezone
 
 import discord
 
-from .config import XP_PER_GAME, XP_PER_WIN, MAX_BET
+from .config import XP_PER_GAME, XP_PER_WIN, MAX_BET, BADGE_RARITY, BADGE_REWARDS, LEVEL_UP_REWARD
 from .database import (
-    record_game_result, get_game_stats, award_badges, get_balance, get_rank, get_player_count,
+    record_game_result, get_game_stats, award_badges, get_balance, get_rank, get_player_count, credit,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,11 +92,22 @@ BADGES = [
     Badge("generous", "🤝", "Generous", "Send coins to another player"),
     Badge("rich", "🤑", "Five Figures", "Have 10,000 coins"),
     Badge("podium", "🏆", "Podium", "Reach the top 3 of the leaderboard"),
+    Badge("duelist", "⚔️", "Duelist", "Win a duel"),
+    Badge("duel_5", "🥇", "Champion", "Win 5 duels"),
+    Badge("bullseye", "🎯", "Bullseye", "Win a roulette bet on a single number"),
+    Badge("zero", "🟢", "Green Zero", "Win when the roulette ball lands on 0"),
+    Badge("jackpot", "💰", "Jackpot", "Win 25 times your bet or more in one game"),
+    Badge("grand_tour", "🗺️", "Grand Tour", "Play every game: slots, blackjack, coinflip, roulette and a duel"),
+    Badge("veteran", "🎖️", "Veteran", "Play 500 games"),
+    Badge("month_streak", "⚡", "Unstoppable", "Claim the daily reward 30 days in a row"),
 ]
 BADGES_BY_ID = {badge.id: badge for badge in BADGES}
 
 RICH_BALANCE = 10_000
 PODIUM_MIN_PLAYERS = 10  # the podium only counts once there is some competition
+JACKPOT_MULTIPLIER = 25
+VETERAN_GAMES = 500
+ALL_GAMES = {"slots", "coinflip", "blackjack", "roulette", "duel"}
 
 
 # ---------- Recording progress ----------
@@ -107,6 +118,7 @@ class Progress:
     level_before: int = 1
     level_after: int = 1
     new_badges: list[Badge] = field(default_factory=list)
+    coins: int = 0  # reward for the new level and badges, already paid
 
     @property
     def leveled_up(self) -> bool:
@@ -123,7 +135,23 @@ class Progress:
             lines.append(line)
         for badge in self.new_badges:
             lines.append(f"🏅 **New badge:** {badge.emoji} {badge.name} — {badge.description}")
+        if self.coins:
+            lines.append(f"🎁 **+{self.coins:,} coins** reward!")
         return "\n".join(lines) or None
+
+
+def reward_for(level_before: int, level_after: int, badge_ids: list[str]) -> int:
+    """Coins for every level reached (the level times LEVEL_UP_REWARD) and for each new badge by its rarity."""
+    levels = sum(level * LEVEL_UP_REWARD for level in range(level_before + 1, level_after + 1))
+    return levels + sum(BADGE_REWARDS[BADGE_RARITY[badge]] for badge in badge_ids)
+
+
+def _progress(user_id, level_before: int, level_after: int, new: list[str]) -> Progress:
+    """Pay the reward and describe what changed."""
+    coins = reward_for(level_before, level_after, new)
+    if coins:
+        credit(user_id, coins)
+    return Progress(level_before, level_after, [BADGES_BY_ID[b] for b in new], coins)
 
 
 def _today() -> str:
@@ -141,9 +169,10 @@ def _wealth_badges(user_id) -> list[str]:
 
 
 def record_game(user_id, game: str, bet: int, payout: int, *, winning_combos: list[str] = (),
-                natural: bool = False, doubled: bool = False) -> Progress:
+                natural: bool = False, doubled: bool = False, bullseye: bool = False,
+                zero_win: bool = False) -> Progress:
     """
-    Record a finished game ('slots', 'coinflip' or 'blackjack') and award what it unlocked.
+    Record a finished game ('slots', 'coinflip', 'blackjack', 'roulette' or 'duel') and award what it unlocked.
     payout is the total returned to the player (0 on a loss, bet on a push).
     """
     today = _today()
@@ -171,10 +200,25 @@ def record_game(user_id, game: str, bet: int, payout: int, *, winning_combos: li
         candidates.append("coin_10")
     if bet >= MAX_BET:
         candidates.append("max_bet")
+    duel_wins = stats.get("duel", (0, 0, 0))[1]
+    if duel_wins >= 1:
+        candidates.append("duelist")
+    if duel_wins >= 5:
+        candidates.append("duel_5")
+    if bullseye:
+        candidates.append("bullseye")
+    if zero_win:
+        candidates.append("zero")
+    if payout >= bet * JACKPOT_MULTIPLIER:
+        candidates.append("jackpot")
+    if ALL_GAMES <= stats.keys():
+        candidates.append("grand_tour")
+    if sum(games for games, _, _ in stats.values()) >= VETERAN_GAMES:
+        candidates.append("veteran")
     candidates += _wealth_badges(user_id)
 
     new = award_badges(user_id, candidates, today)
-    return Progress(level_for_xp(xp_before), level_for_xp(xp_after), [BADGES_BY_ID[b] for b in new])
+    return _progress(user_id, level_for_xp(xp_before), level_for_xp(xp_after), new)
 
 
 def track_game(user_id, game: str, bet: int, payout: int, **details) -> Progress | None:
@@ -190,7 +234,7 @@ def record_badges(user_id, badge_ids: list[str], check_wealth: bool = False) -> 
     """Award badges earned outside games (daily streak, /pay). XP and level don't change."""
     candidates = list(badge_ids) + (_wealth_badges(user_id) if check_wealth else [])
     new = award_badges(user_id, candidates, _today())
-    return Progress(new_badges=[BADGES_BY_ID[b] for b in new])
+    return _progress(user_id, 1, 1, new)
 
 
 async def send_notice(interaction: discord.Interaction, progress: Progress | None):
