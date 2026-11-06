@@ -266,16 +266,6 @@ def _reels_frame(windows: list[Image.Image], highlight: set[tuple[int, int]] = f
     return frame
 
 
-def render_result_png(grid: list[list[str]], winning_cells: set[tuple[int, int]], bet: int, payout: int) -> bytes:
-    """The last frame of a spin as a still picture, for autoplay where there's no time for the animation."""
-    windows = [_reel_window([grid[row][col] for row in range(3)], 1.0, False) for col in range(3)]
-    frame = _reels_frame(windows, winning_cells, glow=1.0 if winning_cells else 0.0)
-    _caption(frame, *_result_caption(payout, bet))
-    output = io.BytesIO()
-    frame.convert("RGB").quantize(colors=200, method=Image.MEDIANCUT, dither=Image.NONE).save(output, format="PNG")
-    return output.getvalue()
-
-
 def render_spin_gif(grid: list[list[str]], winning_cells: set[tuple[int, int]], bet: int, payout: int,
                     seed: int | None = None) -> bytes:
     """Draw a spin that lands on grid (3 rows of 3 symbols). winning_cells holds (row, column) pairs."""

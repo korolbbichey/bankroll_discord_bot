@@ -1,8 +1,8 @@
 """
 Slots game for the BankRoll Discord Bot.
 
-A spin is shown as an animated GIF. Autoplay plays several spins in a row with still pictures instead,
-stopping early on a big win, at the player's stop-loss, when the coins run out or when they press Stop.
+A spin is shown as an animated GIF. Autoplay plays several spins in a row on its own, stopping early
+on a big win, at the player's stop-loss, when the coins run out or when they press Stop.
 """
 
 import discord
@@ -19,14 +19,13 @@ from ..config import (
 from ..database import get_balance, try_debit, credit, update_stats
 from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet
 from ..progression import Progress, track_game, send_notice
-from ..slots_gif import animation_seconds, render_result_png, render_spin_gif
+from ..slots_gif import animation_seconds, render_spin_gif
 
 logger = logging.getLogger(__name__)
 
 _WEIGHTS = [SYMBOL_WEIGHTS[s] for s in SLOT_SYMBOLS]
 SPIN_COLOR = discord.Color.blurple()
 GIF_NAME = "spin.gif"
-STILL_NAME = "autoplay.png"
 
 
 LINE_NAMES = ["Row 1", "Row 2", "Row 3", "Column 1", "Column 2", "Column 3", "Diagonal ↘", "Diagonal ↙"]
@@ -236,18 +235,35 @@ class SlotView(discord.ui.View):
         await interaction.edit_original_response(embed=self.render(), view=self)
         await send_notice(interaction, progress)
 
-    async def draw_still(self, grid: list, winning_lines: list, payout: int) -> bytes | None:
-        """The spin's final picture, or None if it can't be drawn (the spin is already paid, so autoplay goes on)."""
+    async def draw_spin(self, grid: list, winning_lines: list, payout: int) -> bytes | None:
+        """The spin's animation, or None if it can't be drawn (the spin is already paid, so autoplay goes on)."""
         try:
             cells = {cell for name, _, _ in winning_lines for cell in line_cells(name)}
             async with DRAW_SLOTS:
-                return await asyncio.to_thread(render_result_png, grid, cells, self.bet, payout)
+                return await asyncio.to_thread(render_spin_gif, grid, cells, self.bet, payout)
         except Exception:
             logger.exception("Failed to draw an autoplay spin")
             return None
 
+    def autoplay_embed(self, title: str, net: int, balance: int, log: list[str], stop_loss: int | None,
+                       gif: bool, grid: list) -> discord.Embed:
+        embed = discord.Embed(title=title, color=SPIN_COLOR)
+        embed.add_field(name="📈 Net", value=signed(net), inline=True)
+        embed.add_field(name="💰 Balance", value=fmt(balance), inline=True)
+        embed.add_field(name="🎲 Bet", value=fmt(self.bet), inline=True)
+        embed.add_field(name="🧾 Last spins", value="\n".join(log) or "—", inline=False)
+        embed.set_footer(text="Press Stop to end autoplay" + (f" • Stop-loss: {fmt(stop_loss)}" if stop_loss else ""))
+        if gif:
+            embed.set_image(url=f"attachment://{GIF_NAME}")
+        else:
+            embed.description = "\n".join(" ".join(row) for row in grid)
+        return embed
+
     async def autoplay(self, interaction: discord.Interaction, spins: int, stop_loss: int | None = None):
-        """Play up to `spins` spins in a row. The interaction must already be responded to (or deferred)."""
+        """
+        Play up to `spins` spins in a row, each with its animation. The interaction must already be responded to.
+        Every spin is shown twice, like a normal one: spinning with the old numbers, then the result once the reels stop.
+        """
         self.last_interaction = interaction
         self.autoplaying = self.spinning = True
         self.stop_requested = False
@@ -257,6 +273,13 @@ class SlotView(discord.ui.View):
         progress = []
         log: list[str] = []
         reason = f"all {spins} spins played"
+
+        async def show(**kwargs):
+            try:
+                await interaction.edit_original_response(view=self, **kwargs)
+            except discord.HTTPException:
+                logger.exception("Failed to show an autoplay spin")
+
         try:
             for number in range(1, spins + 1):
                 if self.stop_requested:
@@ -265,9 +288,17 @@ class SlotView(discord.ui.View):
                 if not try_debit(self.user_id, self.bet):
                     reason = "not enough coins for the next spin"
                     break
+                balance_during_spin = get_balance(self.user_id)
                 grid = roll_grid()
                 winning_lines = find_winning_lines(grid)
                 payout = sum(multiplier for _, _, multiplier in winning_lines) * self.bet
+                gif = await self.draw_spin(grid, winning_lines, payout)
+                spinning = self.autoplay_embed(f"🔁 Autoplay — spin {number}/{spins} 🎰", net, balance_during_spin, log,
+                                               stop_loss, bool(gif), grid)
+                files = [discord.File(io.BytesIO(gif), filename=GIF_NAME)] if gif else []
+                await show(content=None, embed=spinning, attachments=files)
+
+                # The player can already see the spin, so pay out now and show the numbers when the reels have stopped.
                 balance = credit(self.user_id, payout) if payout else get_balance(self.user_id)
                 update_stats(self.user_id, payout, self.bet, grid)
                 progress.append(track_game(self.user_id, "slots", self.bet, payout,
@@ -278,25 +309,10 @@ class SlotView(discord.ui.View):
                 log.insert(0, log_line(number, winning_lines, payout, self.bet))
                 del log[AUTOPLAY_LOG_SIZE:]
                 self.timeout = GAME_TIMEOUT  # keeps the Stop button alive however long autoplay runs
-
-                embed = discord.Embed(title=f"🔁 Autoplay — spin {number}/{spins}", color=SPIN_COLOR)
-                embed.add_field(name="📈 Net", value=signed(net), inline=True)
-                embed.add_field(name="💰 Balance", value=fmt(balance), inline=True)
-                embed.add_field(name="🎲 Bet", value=fmt(self.bet), inline=True)
-                embed.add_field(name="🧾 Last spins", value="\n".join(log), inline=False)
-                embed.set_footer(text="Press Stop to end autoplay"
-                                      + (f" • Stop-loss: {fmt(stop_loss)}" if stop_loss else ""))
-                picture = await self.draw_still(grid, winning_lines, payout)
-                if picture:
-                    embed.set_image(url=f"attachment://{STILL_NAME}")
-                    files = [discord.File(io.BytesIO(picture), filename=STILL_NAME)]
-                else:
-                    embed.description = "\n".join(" ".join(row) for row in grid)
-                    files = []
-                try:
-                    await interaction.edit_original_response(content=None, embed=embed, view=self, attachments=files)
-                except discord.HTTPException:
-                    logger.exception("Failed to show an autoplay spin")
+                if gif:
+                    await asyncio.sleep(animation_seconds(bool(winning_lines)) + SLOTS_RESULT_DELAY_MARGIN)
+                await show(embed=self.autoplay_embed(f"🔁 Autoplay — spin {number}/{spins}", net, balance, log,
+                                                     stop_loss, bool(gif), grid))
 
                 if payout >= self.bet * AUTOPLAY_STOP_MULTIPLIER:
                     reason = f"big win, +{fmt(payout - self.bet)}!"
@@ -327,7 +343,7 @@ class SlotView(discord.ui.View):
         self.result.add_field(name="💰 Balance", value=fmt(get_balance(self.user_id)), inline=True)
         self.result.add_field(name="🔢 Spins", value=fmt(played), inline=True)
         self.result.add_field(name="🏆 Best win", value=signed(best) if best > 0 else "—", inline=True)
-        self.result.set_image(url=f"attachment://{STILL_NAME}")  # the last spin's picture, already in the message
+        self.result.set_image(url=f"attachment://{GIF_NAME}")  # the last spin's animation, already in the message
         self.set_disabled(False)
         await interaction.edit_original_response(embed=self.render(), view=self)
         await send_notice(interaction, merge_progress(progress))

@@ -6,7 +6,7 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 
 ### Interactive Games
 - **Slots** (`/slots <bet>`) - 3x3 slot machine with spins drawn as animated GIFs (`bot/slots_gif.py`), 8 paying lines, and adjustable bets (~95% return)
-  - **Autoplay** — `/slots <bet> spins:<2-50> stop_loss:<coins>` or the **Auto ×10** button. Spins show a still picture instead of the animation and stop early on a 10x win, at the stop-loss, when the coins run out or when the player presses Stop
+  - **Autoplay** — `/slots <bet> spins:<2-50> stop_loss:<coins>` or the **Auto ×10** button. Each spin plays the normal animation on its own; autoplay stops early on a 10x win, at the stop-loss, when the coins run out or when the player presses Stop
 - **Blackjack** (`/blackjack <bet>`) - A drawn table (`bot/blackjack_card.py`), classic 21 with Hit/Stand/Double actions, natural blackjack pays 3:2
 - **Coin Flip** (`/coinflip <guess> <bet>`) - An animated coin with a crowned king and a laurel wreath on its sides (`bot/coinflip_gif.py`), simple heads/tails game with 2x payout
 - **Roulette** (`/roulette <on> <bet>`) - An animated European wheel (`bot/roulette_gif.py`). Bet on red/black, odd/even, 1-18/19-36 (2x), a dozen (3x) or a single number 0-36 (36x). Real payouts, so the only house edge is the zero (~97.3% return)

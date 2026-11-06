@@ -102,10 +102,10 @@ RESULT_DELAY_MARGIN = 1.5
 # Slots are played many times in a row, so their result waits less.
 SLOTS_RESULT_DELAY_MARGIN = 1.0
 
-# Slots autoplay: spins with a still picture instead of the animation, one every AUTOPLAY_DELAY seconds.
+# Slots autoplay: spins on its own, each with the normal animation, AUTOPLAY_DELAY seconds apart after the result.
 AUTOPLAY_MAX_SPINS = 50
 AUTOPLAY_BUTTON_SPINS = 10      # spins started by the "Auto" button
-AUTOPLAY_DELAY = 2.2           # long enough for Discord to load the picture and the player to see it
+AUTOPLAY_DELAY = 0.8           # a moment to see the result before the next spin
 AUTOPLAY_STOP_MULTIPLIER = 10   # autoplay pauses on a win of this many bets, so the player sees it
 AUTOPLAY_LOG_SIZE = 5           # recent spins listed under the picture
 
