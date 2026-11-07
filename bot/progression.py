@@ -100,6 +100,7 @@ BADGES = [
     Badge("grand_tour", "🗺️", "Grand Tour", "Play every game: slots, blackjack, coinflip, roulette and a duel"),
     Badge("veteran", "🎖️", "Veteran", "Play 500 games"),
     Badge("month_streak", "⚡", "Unstoppable", "Claim the daily reward 30 days in a row"),
+    Badge("full_house", "💯", "Full House", "Fill the whole slot grid with one symbol: all 8 lines"),
 ]
 BADGES_BY_ID = {badge.id: badge for badge in BADGES}
 
@@ -195,6 +196,8 @@ def record_game(user_id, game: str, bet: int, payout: int, *, winning_combos: li
         candidates.append("spins_100")
     if len(winning_combos) >= 3:
         candidates.append("multi_line")
+    if len(winning_combos) >= 8:  # every row, column and diagonal
+        candidates.append("full_house")
     if any(combo.startswith("💎") for combo in winning_combos):
         candidates.append("diamond_line")
     if natural:

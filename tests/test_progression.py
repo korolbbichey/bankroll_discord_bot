@@ -116,6 +116,16 @@ def test_slot_badges(db):
     assert {"multi_line", "diamond_line", "first_win"} <= set(badge_ids(progress))
 
 
+def test_full_house(db):
+    assert "full_house" not in badge_ids(record_game(1, "slots", 10, 70, winning_combos=["🍋🍋🍋"] * 7))
+    assert "full_house" in badge_ids(record_game(1, "slots", 10, 80, winning_combos=["🍋🍋🍋"] * 8))
+
+
+def test_full_grid_wins_eight_lines():
+    from bot.games.slots import find_winning_lines
+    assert len(find_winning_lines([["🍋"] * 3] * 3)) == 8
+
+
 def test_spin_master(db):
     for _ in range(99):
         record_game(1, "slots", 1, 0)

@@ -26,7 +26,7 @@ BOT_STATUS = os.getenv("BOT_STATUS", "🎡 New: Roulette! Type /help to start")
 ANNOUNCEMENT_ID = "2026-11-roulette-update"
 
 # Economy settings
-MAX_BET = 10000
+MAX_BET = 100000
 MIN_BET = 1
 DAILY_REWARD = 50
 # Daily reward by streak day (claiming on consecutive UTC days). Day 1 = DAILY_REWARD,
@@ -58,7 +58,7 @@ BADGE_RARITY = {
     "max_bet": "rare",
     "rich": "epic", "grand_tour": "epic", "bullseye": "epic", "duel_5": "epic", "jackpot": "epic",
     "diamond_line": "legendary", "podium": "legendary", "zero": "legendary", "veteran": "legendary",
-    "month_streak": "legendary",
+    "month_streak": "legendary", "full_house": "legendary",
 }
 BADGE_REWARDS = {"common": 50, "rare": 150, "epic": 500, "legendary": 1500}
 # The day badges started paying. Badges earned before it are paid once when the bot starts (badge_backpay).

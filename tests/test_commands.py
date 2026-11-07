@@ -74,14 +74,14 @@ def test_bet_all_and_half(bot, db):
 
 
 def test_bet_suggestions_show_amounts(bot, db):
-    db.set_balance(1, 25_000)
+    db.set_balance(1, 150_000)
 
     async def suggest(text):
         return [(c.name, c.value) for c in await BetTransformer().autocomplete(make_interaction(1), text)]
 
     async def go():
-        assert await suggest("") == [("all — 10,000 coins", "all"), ("half — 10,000 coins", "half")]
-        assert await suggest("h") == [("half — 10,000 coins", "half")]
+        assert await suggest("") == [("all — 100,000 coins", "all"), ("half — 75,000 coins", "half")]
+        assert await suggest("h") == [("half — 75,000 coins", "half")]
         assert await suggest("2k") == [("2,000 coins", "2k")]
         assert await suggest("lots") == []
     asyncio.run(go())
@@ -294,7 +294,7 @@ def test_profile_falls_back_to_text(bot, db, monkeypatch):
     embed = text_profile(bot, monkeypatch, make_interaction(1, user=make_user(1, global_name="Alice")))
     assert embed.title == "🪙 Alice"
     assert embed.description.startswith("**Rookie** · Level 1\n")
-    assert [f.name for f in embed.fields] == ["💰 Wallet", "🏅 Badges (0/21)", "📊 Stats"]
+    assert [f.name for f in embed.fields] == ["💰 Wallet", "🏅 Badges (0/22)", "📊 Stats"]
     assert "2,500" in embed.fields[0].value and "Rank #1" in embed.fields[0].value
     assert "None yet" in embed.fields[1].value and "🔒 Next:" in embed.fields[1].value
     assert "Lucky symbol 🍒" in embed.fields[2].value
@@ -311,7 +311,7 @@ def test_text_profile_shows_level_badges_and_favorite_game(bot, db, monkeypatch)
     db.update_blackjack_stats(1, 10, True)
     embed = text_profile(bot, monkeypatch, make_interaction(1, user=make_user(1, global_name="Alice")))
     assert "Level 2" in embed.description and "35 / 200 XP" in embed.description
-    assert embed.fields[1].name == "🏅 Badges (2/21)"
+    assert embed.fields[1].name == "🏅 Badges (2/22)"
     assert "🍀 First Win" in embed.fields[1].value and "🃏 Natural 21" in embed.fields[1].value
     assert "Favorite game: **Slots**" in embed.fields[2].value
     assert "📅 Playing since" in embed.fields[2].value
@@ -326,7 +326,7 @@ def test_badges_command(bot, db):
         assert interaction.response.send_message.call_args.kwargs["ephemeral"] is True
         return sent_embed(interaction.response.send_message)
     embed = asyncio.run(go())
-    assert embed.title == "🏅 Alice's badges — 1 / 21"
+    assert embed.title == "🏅 Alice's badges — 1 / 22"
     assert "🍀 **First Win** — Win any game" in embed.description
     assert "🔒 **Explorer**" in embed.description
 
@@ -409,7 +409,7 @@ def test_help_embed_lists_payouts(bot):
         await command(bot, "help").callback(interaction)
         return sent_embed(interaction.response.send_message)
     embed = asyncio.run(go())
-    assert "1–10,000 coins, or `all` / `half`" in embed.fields[0].value
+    assert "1–100,000 coins, or `all` / `half`" in embed.fields[0].value
     assert "🍋🍋🍋 — **1x**" in embed.fields[2].value
     assert [f.name for f in embed.fields][-2:] == ["🌍 Play anywhere", "📜 Terms of Service"]
     assert "Add to My Apps" in embed.fields[-2].value

@@ -34,8 +34,8 @@ def test_validate_bet():
     ("all", 1234, 1234),
     ("ALL", 1234, 1234),
     ("half", 1234, 617),
-    ("all", 50_000, MAX_BET),    # capped at the maximum bet
-    ("half", 50_000, MAX_BET),
+    ("all", MAX_BET * 5, MAX_BET),    # capped at the maximum bet
+    ("half", MAX_BET * 5, MAX_BET),
     ("all", 0, MIN_BET),         # an empty balance still gives a bet, so the player sees "not enough coins"
     ("half", 1, MIN_BET),
 ])
