@@ -402,6 +402,35 @@ def test_admin_stats_command(db, monkeypatch):
     assert "slots" in embed.fields[2].value and "+1,000" in embed.fields[3].value
 
 
+@pytest.mark.rewards
+def test_admin_badge_command(db, monkeypatch):
+    monkeypatch.setattr(main.admin, "ADMIN_GUILD_ID", 123)
+
+    async def go():
+        client = main.BankRollBot()
+        main.admin.setup(client)
+        group = client.tree.get_command("admin", guild=discord.Object(123))
+        command = group.get_command("badge")
+        choices = await command._params["badge"].autocomplete(make_interaction(42), "big")
+        replies = []
+        for badge in ("max_bet", "max_bet", "nonsense"):
+            interaction = make_interaction(42, done=False)
+            await command.callback(interaction, make_user(2), badge)
+            replies.append(interaction.response.send_message.call_args)
+        return choices, replies
+    choices, (given, again, wrong) = asyncio.run(go())
+    assert [c.value for c in choices] == ["max_bet"]
+    assert "Big Spender" in given.args[0] and "150" in given.args[0] and given.kwargs["ephemeral"]
+    assert "max_bet" in db.get_badges(2) and db.get_balance(2) == STARTING_BALANCE + 150, "the reward is paid"
+    assert "already has" in again.args[0] and db.get_balance(2) == STARTING_BALANCE + 150, "never twice"
+    assert "No such badge" in wrong.args[0]
+    db.set_balance(2, 20_000)
+    later = progression.record_game(2, "coinflip", 10_000, 20_000)  # a real 10k bet after the manual badge
+    others = [b.id for b in later.new_badges]
+    assert "max_bet" not in others, "a real bet doesn't give it again"
+    assert later.coins == progression.reward_for(1, 1, others), "only the other new badges are paid"
+
+
 def test_new_tables_are_added_to_an_old_database(db, tmp_path, monkeypatch):
     import sqlite3
     old = tmp_path / "old.db"

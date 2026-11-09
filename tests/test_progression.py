@@ -145,7 +145,9 @@ def test_coin_collector(db):
 
 
 def test_big_spender(db):
-    assert "max_bet" in badge_ids(record_game(1, "coinflip", MAX_BET, 0))
+    assert "max_bet" not in badge_ids(record_game(1, "coinflip", 9_999, 0))
+    assert "max_bet" in badge_ids(record_game(1, "coinflip", 10_000, 0)), "10,000 is enough, not the maximum bet"
+    assert "max_bet" in badge_ids(record_game(2, "coinflip", MAX_BET, 0))
 
 
 def test_wealth_badges(db):

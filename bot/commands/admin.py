@@ -13,6 +13,7 @@ from discord import app_commands
 
 from ..config import OWNER_IDS, ADMIN_GUILD_ID
 from ..database import credit, try_debit, get_balance, get_bot_stats, set_balance
+from ..progression import BADGES, BADGES_BY_ID, record_badges
 from ..utils import fmt
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,29 @@ def setup(client):
         set_balance(user.id, amount)
         logger.info("%s set balance of %s to %d", interaction.user, user.id, amount)
         await interaction.response.send_message(f"✅ {user.mention}'s balance is now 💰 {fmt(amount)}", ephemeral=True)
+
+    async def badge_choices(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        text = current.lower()
+        return [app_commands.Choice(name=f"{b.emoji} {b.name} — {b.description}"[:100], value=b.id)
+                for b in BADGES if text in b.name.lower() or text in b.id][:25]
+
+    @admin.command(name="badge", description="Give a player a badge they earned but didn't get (pays its reward)")
+    @app_commands.describe(user="Player", badge="Badge to give")
+    @app_commands.autocomplete(badge=badge_choices)
+    async def give_badge(interaction: discord.Interaction, user: discord.User, badge: str):
+        if badge not in BADGES_BY_ID:
+            await interaction.response.send_message("❌ No such badge. Pick one from the list.", ephemeral=True)
+            return
+        found = BADGES_BY_ID[badge]
+        progress = record_badges(user.id, [badge])
+        if not progress.new_badges:
+            await interaction.response.send_message(f"ℹ️ {user.mention} already has {found.emoji} {found.name}.",
+                                                    ephemeral=True)
+            return
+        logger.info("%s gave badge %s to %s", interaction.user, badge, user.id)
+        await interaction.response.send_message(
+            f"✅ Gave {found.emoji} **{found.name}** to {user.mention} with its reward of 💰 {fmt(progress.coins)}. "
+            f"New balance: 💰 {fmt(get_balance(user.id))}", ephemeral=True)
 
     @admin.command(name="stats", description="Players, retention, popular games and the biggest coin movements")
     async def stats(interaction: discord.Interaction):

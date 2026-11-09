@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import discord
 
-from .config import XP_PER_GAME, XP_PER_WIN, DAILY_XP_LIMIT, MAX_BET, BADGE_RARITY, BADGE_REWARDS, LEVEL_UP_REWARD
+from .config import XP_PER_GAME, XP_PER_WIN, DAILY_XP_LIMIT, BADGE_RARITY, BADGE_REWARDS, LEVEL_UP_REWARD
 from .database import (
     record_game_result, get_game_stats, award_badges, get_balance, get_rank, get_player_count, credit,
 )
@@ -87,7 +87,7 @@ BADGES = [
     Badge("natural", "🃏", "Natural 21", "Get a blackjack on the deal"),
     Badge("double_win", "✌️", "Double Trouble", "Win after doubling down"),
     Badge("coin_10", "🪙", "Coin Collector", "Win 10 coinflips"),
-    Badge("max_bet", "💸", "Big Spender", "Bet the maximum in one game"),
+    Badge("max_bet", "💸", "Big Spender", "Bet 10,000 or more in one game"),
     Badge("week_streak", "🔥", "On Fire", "Claim the daily reward 7 days in a row"),
     Badge("generous", "🤝", "Generous", "Send coins to another player"),
     Badge("rich", "🤑", "Five Figures", "Have 10,000 coins"),
@@ -105,6 +105,7 @@ BADGES = [
 BADGES_BY_ID = {badge.id: badge for badge in BADGES}
 
 RICH_BALANCE = 10_000
+BIG_SPENDER_BET = 10_000  # fixed: the badge was "bet the maximum" when the maximum was 10,000
 PODIUM_MIN_PLAYERS = 10  # the podium only counts once there is some competition
 JACKPOT_MULTIPLIER = 25
 VETERAN_GAMES = 500
@@ -206,7 +207,7 @@ def record_game(user_id, game: str, bet: int, payout: int, *, winning_combos: li
         candidates.append("double_win")
     if stats.get("coinflip", (0, 0, 0))[1] >= 10:
         candidates.append("coin_10")
-    if bet >= MAX_BET:
+    if bet >= BIG_SPENDER_BET:
         candidates.append("max_bet")
     duel_wins = stats.get("duel", (0, 0, 0))[1]
     if duel_wins >= 1:
