@@ -29,7 +29,7 @@ def command(bot, name):
 
 def test_public_commands_are_registered(bot):
     names = sorted(c.name for c in bot.tree.get_commands())
-    assert names == ["badges", "bailout", "balance", "blackjack", "coinflip", "daily_reward", "duel", "help", "leaderboard", "pay", "profile", "slots"]
+    assert names == ["badges", "bailout", "balance", "blackjack", "coinflip", "daily_reward", "duel", "help", "leaderboard", "pay", "profile", "slots", "updates"]
 
 
 def test_public_commands_support_user_install_everywhere(bot):

@@ -6,6 +6,8 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 
 import os
 import logging
+from datetime import datetime, timezone
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -13,7 +15,11 @@ from dotenv import load_dotenv
 
 # Import bot modules
 from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
-from bot.database import init_db, mark_announcement_shown, refund_pending_duels, save_username, take_backpay_notice
+from bot.database import (
+    init_db, mark_announcement_shown, refund_pending_duels, save_username, take_backpay_notice,
+    get_changelog_seen, mark_changelog_seen,
+)
+from bot import changelog
 from bot.utils import display_name, avatar_hash, InvalidBet
 from bot.commands import economy, admin, general, work
 from bot.games import slots, blackjack, coinflip, duel, roulette
@@ -83,6 +89,7 @@ class BankRollBot(commands.Bot):
         self.remember_name(interaction.user)
         await self.maybe_announce(interaction)
         await self.maybe_tell_backpay(interaction)
+        await self.maybe_tell_changes(interaction)
 
     def remember_name(self, user: discord.abc.User):
         """Keep the player's name and avatar hash in the database for the leaderboard (DB write only when they change)."""
@@ -123,6 +130,23 @@ class BankRollBot(commands.Bot):
                     f"badge{'s' if badges != 1 else ''} you collected before. Thanks for playing!", ephemeral=True)
         except Exception:
             logger.exception("Failed to tell about the badge backpay")
+
+    async def maybe_tell_changes(self, interaction: discord.Interaction):
+        """Tell a player, privately and once, what changed since they were last told (bot/changelog.py)."""
+        if not interaction.response.is_done() or (interaction.command and interaction.command.name == "updates"):
+            return
+        try:
+            user_id = interaction.user.id
+            last_seen, first_played, veteran = get_changelog_seen(user_id)
+            if last_seen == changelog.latest_id():
+                return
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            entries = changelog.unseen_entries(last_seen, first_played, veteran, today)
+            # Marked first, so two commands at once can't both send it.
+            if mark_changelog_seen(user_id, changelog.latest_id()) and entries:
+                await interaction.followup.send(changelog.notice_text(entries), ephemeral=True)
+        except Exception:
+            logger.exception("Failed to tell about the changes")
 
     async def on_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, InvalidBet):

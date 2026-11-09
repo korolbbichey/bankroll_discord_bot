@@ -2,10 +2,13 @@
 General commands for the BankRoll Discord Bot.
 """
 
+from datetime import datetime
+
 import discord
 
 from ..config import AUTOPLAY_MAX_SPINS, BAILOUT_AMOUNT, SLOT_PAYOUTS, DAILY_STREAK_REWARDS, MIN_BET, MAX_BET
 from ..utils import fmt
+from ..changelog import CHANGELOG, UPDATES_SHOWN
 
 TOS_URL = "https://gist.github.com/korolbbichey/ec9757512835365e37c3c8823d096ccb"
 
@@ -43,7 +46,8 @@ def build_help_embed() -> discord.Embed:
         "`/pay <user> <amount>` — send coins to a friend\n"
         "`/leaderboard` — richest players and your position\n"
         "`/profile [user]` — player card: level, title and stats\n"
-        "`/badges [user]` — every badge, how to earn it and the coins it pays"
+        "`/badges [user]` — every badge, how to earn it and the coins it pays\n"
+        "`/updates` — what changed in the bot lately"
     ), inline=False)
     embed.add_field(name="🎰 Slot payouts (per line)", value="\n".join(
         f"{combo} — **{multiplier}x**" for combo, multiplier in SLOT_PAYOUTS.items()
@@ -88,8 +92,23 @@ def build_announcement_embed() -> discord.Embed:
     return embed
 
 
+def build_updates_embed() -> discord.Embed:
+    """The latest changelog entries, newest first."""
+    embed = discord.Embed(title="📰 What's new in Bankroll", color=discord.Color.gold())
+    for entry in CHANGELOG[:UPDATES_SHOWN]:
+        day = datetime.strptime(entry.date, "%Y-%m-%d").strftime("%b %d").replace(" 0", " ")
+        embed.add_field(name=f"{day} — {entry.title}", value="\n".join(f"• {line}" for line in entry.lines)[:1024],
+                        inline=False)
+    embed.set_footer(text="Ideas or bugs? Tell us, they shape the next update!")
+    return embed
+
+
 def setup(client):
     """Setup general commands."""
+
+    @client.tree.command(name="updates", description="What changed in the bot lately")
+    async def updates_command(interaction: discord.Interaction):
+        await interaction.response.send_message(embed=build_updates_embed(), ephemeral=True)
 
     @client.tree.command(name="help", description="List all commands, slot payouts and the Terms of Service")
     async def help_command(interaction: discord.Interaction):

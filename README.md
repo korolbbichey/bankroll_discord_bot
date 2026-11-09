@@ -35,6 +35,11 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 
 Level-ups and new badges are announced to the player privately right after the game. Rules live in `bot/progression.py`.
 
+- **Updates** (`/updates`) - The latest changes
+
+### Telling players what changed
+Every player-facing change gets an entry in `bot/changelog.py`, in the same commit as the change. After the deploy each player gets one private "What's new" message after their next command, listing every entry they missed (only entries from the last 14 days, and only changes made after they started playing). Players don't need to be on the support server. Big updates also get a public announcement once per server (`ANNOUNCEMENT_ID` in `bot/config.py`); their changelog entry has `notify=False` so players aren't told twice.
+
 ### Admin Commands
 Balances are shared across every server, so admin commands are restricted to the **bot owner** (the application owner in the Developer Portal, plus anyone listed in `OWNER_IDS`). They are registered **only in the server set by `ADMIN_GUILD_ID`**, so they don't appear anywhere else or on the bot's profile. If `ADMIN_GUILD_ID` is not set, they are disabled.
 - `/admin give <user> <amount>` - add coins to a player
@@ -61,8 +66,8 @@ bankroll_discord_bot/
 │   ├── commands/          # Command modules
 │   │   ├── __init__.py
 │   │   ├── economy.py     # Balance, daily, pay, leaderboard, profile
-│   │   ├── admin.py       # /admin give|take|set (private server only)
-│   │   └── general.py     # Help
+│   │   ├── admin.py       # /admin give|take|set|badge|stats (private server only)
+│   │   └── general.py     # Help, /updates
 │   │
 │   └── games/             # Game modules
 │       ├── __init__.py

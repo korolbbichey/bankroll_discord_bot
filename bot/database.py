@@ -76,6 +76,11 @@ def init_db():
             target_id INTEGER PRIMARY KEY,
             announcement_id TEXT NOT NULL
         )''')
+        # The newest changelog entry each player was told about (bot/changelog.py)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS changelog_seen (
+            user_id INTEGER PRIMARY KEY,
+            entry_id TEXT NOT NULL
+        )''')
 
         # Display names are cached for the leaderboard, so it doesn't need Discord API calls.
         currency_columns = [row[1] for row in cursor.execute("PRAGMA table_info(currency)")]
@@ -482,6 +487,29 @@ def mark_announcement_shown(target_id, announcement_id: str) -> bool:
             ON CONFLICT(target_id) DO UPDATE SET announcement_id = excluded.announcement_id
             WHERE announcement_id != excluded.announcement_id
         """, (target_id, announcement_id))
+        return cursor.rowcount == 1
+
+
+def get_changelog_seen(user_id) -> tuple[str | None, str | None, bool]:
+    """(last changelog entry the player was told about, the day of their first game, veteran) for bot/changelog.py."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT entry_id FROM changelog_seen WHERE user_id = ?", (user_id,))
+        seen = cursor.fetchone()
+        cursor.execute("SELECT first_played, veteran FROM players WHERE user_id = ?", (user_id,))
+        player = cursor.fetchone()
+    return (seen[0] if seen else None, player[0] if player else None, bool(player[1]) if player else False)
+
+
+def mark_changelog_seen(user_id, entry_id: str) -> bool:
+    """Record the newest entry the player was told about. Returns True only if it changed (so they're told once)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO changelog_seen (user_id, entry_id) VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET entry_id = excluded.entry_id
+            WHERE entry_id != excluded.entry_id
+        """, (user_id, entry_id))
         return cursor.rowcount == 1
 
 
