@@ -280,6 +280,56 @@ def test_players_are_told_once(db, tmp_path, monkeypatch):
     assert second.await_count == 0 and other.await_count == 0
 
 
+# ---------- badge rebalance ----------
+
+def test_rewards_follow_the_odds():
+    from bot.config import badge_coins
+    assert badge_coins("full_house") == 10_000
+    assert [badge_coins(b) for b in ("zero", "bullseye", "duel_5", "duelist")] == [150, 150, 150, 50]
+    assert [badge_coins(b) for b in ("max_bet", "week_streak", "streak_3", "jackpot")] == [500, 500, 150, 500]
+
+
+def raised_rewards_start(db, badges):
+    """A start without the badge_topup table yet, with these (user, badge) pairs already earned."""
+    import sqlite3
+    conn = sqlite3.connect(db.DB_FILE)
+    conn.execute("DROP TABLE badge_topup")
+    conn.executemany("INSERT INTO badges (user_id, badge, earned_at) VALUES (?, ?, '2026-11-08')", badges)
+    conn.commit()
+    conn.close()
+    db.init_db()
+
+
+def test_holders_get_the_difference_once(db):
+    raised_rewards_start(db, [(1, "max_bet"), (1, "week_streak"), (1, "zero"), (2, "full_house"), (3, "duel_5")])
+    assert db.get_balance(1) == STARTING_BALANCE + 350 + 350, "Big Spender and On Fire went up by 350"
+    assert db.get_balance(2) == STARTING_BALANCE + 8_500, "Full House went up from 1,500"
+    assert db.get_balance(3) == STARTING_BALANCE, "rewards that went down aren't taken back"
+    db.init_db()
+    assert db.get_balance(1) == STARTING_BALANCE + 700, "only once"
+
+
+def test_holders_are_told_about_the_difference_once(db):
+    raised_rewards_start(db, [(1, "max_bet")])
+
+    async def go():
+        client = main.BankRollBot()
+        sends = []
+        for user_id in (1, 1, 2):
+            interaction = make_interaction(user_id)
+            await client.maybe_tell_topup(interaction)
+            sends.append(interaction.followup.send)
+        return sends
+    first, second, other = asyncio.run(go())
+    assert "+350 coins" in first.call_args.args[0] and first.call_args.kwargs["ephemeral"] is True
+    assert second.await_count == 0 and other.await_count == 0
+
+
+def test_three_day_streak_badge(db):
+    progress = progression.record_badges(1, ["streak_3"])
+    assert [b.id for b in progress.new_badges] == ["streak_3"]
+
+
 # ---------- XP given back for the old daily XP limit ----------
 
 def database_from_the_xp_limit_days(db):

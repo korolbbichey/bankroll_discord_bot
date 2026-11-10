@@ -125,8 +125,9 @@ def test_win_on_red(bot, db, monkeypatch):
 def test_single_number_pays_36x_and_earns_bullseye(bot, db, monkeypatch):
     spin(bot, monkeypatch, "17", 2, 17)
     assert db.get_balance(1) == STARTING_BALANCE + 70
-    assert {"bullseye", "jackpot"} <= db.get_badges(1)
+    assert "bullseye" in db.get_badges(1)
     assert "zero" not in db.get_badges(1)
+    assert "jackpot" not in db.get_badges(1), "36x on a number is 1 in 37: Jackpot is for slots"
 
 
 def test_zero_win_earns_green_zero(bot, db, monkeypatch):
@@ -190,7 +191,8 @@ def test_jackpot_needs_25x(db):
     assert "jackpot" in db.get_badges(1)
 
 
-@pytest.mark.parametrize("streak, expected", [(7, {"week_streak"}), (30, {"week_streak", "month_streak"})])
+@pytest.mark.parametrize("streak, expected", [(2, set()), (3, {"streak_3"}), (7, {"streak_3", "week_streak"}),
+                                              (30, {"streak_3", "week_streak", "month_streak"})])
 def test_streak_badges_from_daily_reward(db, monkeypatch, streak, expected):
     from dataclasses import replace
     economy = main.economy
@@ -204,3 +206,4 @@ def test_streak_badges_from_daily_reward(db, monkeypatch, streak, expected):
     asyncio.run(go())
     assert expected <= db.get_badges(1)
     assert ("month_streak" in db.get_badges(1)) == (streak >= 30)
+    assert ("streak_3" in db.get_badges(1)) == (streak >= 3)

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import discord
 
-from .config import XP_PER_GAME, XP_PER_WIN, DAILY_LEVEL_REWARD_LIMIT, BADGE_RARITY, BADGE_REWARDS, LEVEL_UP_REWARD
+from .config import XP_PER_GAME, XP_PER_WIN, DAILY_LEVEL_REWARD_LIMIT, LEVEL_UP_REWARD, badge_coins
 from .database import (
     record_game_result, get_game_stats, award_badges, get_balance, get_rank, get_player_count, credit,
     claim_level_reward,
@@ -79,29 +79,31 @@ class Badge:
     description: str
 
 
+# Grouped for reading: playing, slots, blackjack, coinflip, roulette, duels, daily streaks, coins.
 BADGES = [
     Badge("first_win", "🍀", "First Win", "Win any game"),
     Badge("explorer", "🧭", "Explorer", "Play slots, blackjack and coinflip"),
+    Badge("grand_tour", "🗺️", "Grand Tour", "Play every game: slots, blackjack, coinflip, roulette and a duel"),
     Badge("spins_100", "🎰", "Spin Master", "Spin the slots 100 times"),
+    Badge("veteran", "🎖️", "Veteran", "Play 500 games"),
     Badge("multi_line", "🌈", "Combo Breaker", "Hit 3 or more winning lines in one spin"),
+    Badge("jackpot", "💰", "Jackpot", "Win 25 times your bet or more in one slots spin"),
     Badge("diamond_line", "💎", "Diamond Hands", "Hit a 💎💎💎 line"),
+    Badge("full_house", "💯", "Full House", "Fill the whole slot grid with one symbol: all 8 lines"),
     Badge("natural", "🃏", "Natural 21", "Get a blackjack on the deal"),
     Badge("double_win", "✌️", "Double Trouble", "Win after doubling down"),
     Badge("coin_10", "🪙", "Coin Collector", "Win 10 coinflips"),
-    Badge("max_bet", "💸", "Big Spender", "Bet 10,000 or more in one game"),
-    Badge("week_streak", "🔥", "On Fire", "Claim the daily reward 7 days in a row"),
-    Badge("generous", "🤝", "Generous", "Send coins to another player"),
-    Badge("rich", "🤑", "Five Figures", "Have 10,000 coins"),
-    Badge("podium", "🏆", "Podium", "Reach the top 3 of the leaderboard"),
-    Badge("duelist", "⚔️", "Duelist", "Win a duel"),
-    Badge("duel_5", "🥇", "Champion", "Win 5 duels"),
     Badge("bullseye", "🎯", "Bullseye", "Win a roulette bet on a single number"),
     Badge("zero", "🟢", "Green Zero", "Win when the roulette ball lands on 0"),
-    Badge("jackpot", "💰", "Jackpot", "Win 25 times your bet or more in one game"),
-    Badge("grand_tour", "🗺️", "Grand Tour", "Play every game: slots, blackjack, coinflip, roulette and a duel"),
-    Badge("veteran", "🎖️", "Veteran", "Play 500 games"),
+    Badge("duelist", "⚔️", "Duelist", "Win a duel"),
+    Badge("duel_5", "🥇", "Champion", "Win 5 duels"),
+    Badge("streak_3", "🌱", "Warming Up", "Claim the daily reward 3 days in a row"),
+    Badge("week_streak", "🔥", "On Fire", "Claim the daily reward 7 days in a row"),
     Badge("month_streak", "⚡", "Unstoppable", "Claim the daily reward 30 days in a row"),
-    Badge("full_house", "💯", "Full House", "Fill the whole slot grid with one symbol: all 8 lines"),
+    Badge("generous", "🤝", "Generous", "Send coins to another player"),
+    Badge("max_bet", "💸", "Big Spender", "Bet 10,000 or more in one game"),
+    Badge("rich", "🤑", "Five Figures", "Have 10,000 coins"),
+    Badge("podium", "🏆", "Podium", "Reach the top 3 of the leaderboard"),
 ]
 BADGES_BY_ID = {badge.id: badge for badge in BADGES}
 
@@ -154,7 +156,7 @@ def level_reward(level_before: int, level_after: int) -> int:
 
 def badge_reward(badge_ids: list[str]) -> int:
     """Coins for each new badge by its rarity."""
-    return sum(BADGE_REWARDS[BADGE_RARITY[badge]] for badge in badge_ids)
+    return sum(badge_coins(badge) for badge in badge_ids)
 
 
 def reward_for(level_before: int, level_after: int, badge_ids: list[str]) -> int:
@@ -230,7 +232,7 @@ def record_game(user_id, game: str, bet: int, payout: int, *, winning_combos: li
         candidates.append("bullseye")
     if zero_win:
         candidates.append("zero")
-    if payout >= bet * JACKPOT_MULTIPLIER:
+    if game == "slots" and payout >= bet * JACKPOT_MULTIPLIER:  # a single roulette number pays 36x: 1 in 37
         candidates.append("jackpot")
     if ALL_GAMES <= stats.keys():
         candidates.append("grand_tour")

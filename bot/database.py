@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from .config import (
     DB_FILE, STARTING_BALANCE, DAILY_STREAK_REWARDS, XP_PER_GAME, XP_PER_WIN, BAILOUT_AMOUNT, COIN_EVENT_MIN,
-    BADGE_RARITY, BADGE_REWARDS, BADGE_REWARDS_SINCE,
+    BADGE_RARITY, BADGE_REWARDS_SINCE, OLD_BADGE_COINS, badge_coins,
 )
 
 
@@ -211,7 +211,7 @@ def init_db():
             for user_id, badge in cursor.execute("SELECT user_id, badge FROM badges WHERE earned_at < ?",
                                                  (BADGE_REWARDS_SINCE,)).fetchall():
                 if badge in BADGE_RARITY:
-                    owed.setdefault(user_id, []).append(BADGE_REWARDS[BADGE_RARITY[badge]])
+                    owed.setdefault(user_id, []).append(badge_coins(badge))
             at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
             for user_id, rewards in owed.items():
                 coins = sum(rewards)
@@ -236,6 +236,32 @@ def init_db():
             for user_id, xp in _missed_xp(cursor).items():
                 cursor.execute("UPDATE players SET xp = xp + ? WHERE user_id = ?", (xp, user_id))
                 cursor.execute("INSERT INTO xp_comeback (user_id, xp) VALUES (?, ?)", (user_id, xp))
+
+        # Some badges pay more since the rebalance (OLD_BADGE_COINS). Players who already had them get the
+        # difference once; rewards that went down aren't taken back. `notified` as above.
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'badge_topup'")
+        topup_is_new = cursor.fetchone() is None
+        cursor.execute('''CREATE TABLE IF NOT EXISTS badge_topup (
+            user_id INTEGER PRIMARY KEY,
+            coins INTEGER NOT NULL,
+            notified INTEGER DEFAULT 0
+        )''')
+        if topup_is_new:
+            owed: dict[int, int] = {}
+            for user_id, badge in cursor.execute(
+                    f"SELECT user_id, badge FROM badges WHERE badge IN ({','.join('?' * len(OLD_BADGE_COINS))})",
+                    list(OLD_BADGE_COINS)).fetchall():
+                owed[user_id] = owed.get(user_id, 0) + max(0, badge_coins(badge) - OLD_BADGE_COINS[badge])
+            at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            for user_id, coins in owed.items():
+                if not coins:
+                    continue
+                _ensure_account(cursor, user_id)
+                cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (coins, user_id))
+                cursor.execute("INSERT INTO badge_topup (user_id, coins) VALUES (?, ?)", (user_id, coins))
+                if coins >= COIN_EVENT_MIN:
+                    cursor.execute("INSERT INTO coin_events (at, user_id, kind, amount, detail) VALUES (?, ?, ?, ?, ?)",
+                                   (at, user_id, "badges", coins, "badge rewards raised"))
 
 
 OLD_DAILY_XP_LIMIT = 1500
@@ -521,6 +547,16 @@ def take_xp_comeback_notice(user_id) -> int | None:
         if cursor.rowcount != 1:
             return None
         return cursor.execute("SELECT xp FROM xp_comeback WHERE user_id = ?", (user_id,)).fetchone()[0]
+
+
+def take_topup_notice(user_id) -> int | None:
+    """The coins paid for badge rewards that went up if the player hasn't been told yet, and mark them as told."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE badge_topup SET notified = 1 WHERE user_id = ? AND notified = 0", (user_id,))
+        if cursor.rowcount != 1:
+            return None
+        return cursor.execute("SELECT coins FROM badge_topup WHERE user_id = ?", (user_id,)).fetchone()[0]
 
 
 def mark_announcement_shown(target_id, announcement_id: str) -> bool:

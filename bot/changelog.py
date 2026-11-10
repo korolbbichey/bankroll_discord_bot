@@ -25,6 +25,14 @@ class Entry:
 
 # Newest first.
 CHANGELOG: list[Entry] = [
+    Entry("2026-11-10-badges", "2026-11-10", "Badge rewards rebalanced", (
+        "💯 **Full House** now pays **10,000** coins",
+        "💸 Big Spender and 🔥 On Fire now pay 500",
+        "🌱 New badge **Warming Up**: claim the daily reward 3 days in a row (150)",
+        "💰 Jackpot is now for a 25x win in slots",
+        "🎯 Bullseye, 🟢 Green Zero and 🥇 Champion pay 150, ⚔️ Duelist 50",
+        "Had a badge that pays more now? You got the difference. Nothing was taken back. Full list: `/badges`",
+    )),
     Entry("2026-11-10-levels", "2026-11-10", "Level up as much as you play", (
         "📈 No more daily XP limit: every game counts toward your level again",
         "🎁 Level-up rewards are limited to 1,000 coins a day instead. Badge rewards have no limit",

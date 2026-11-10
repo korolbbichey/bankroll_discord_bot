@@ -77,7 +77,7 @@ def build_announcement_embed() -> discord.Embed:
     ), inline=False)
     embed.add_field(name="🏅 8 new badges", value=(
         "⚔️ Duelist · 🥇 Champion · 🎯 Bullseye · 🟢 Green Zero · 💰 Jackpot · 🗺️ Grand Tour · 🎖️ Veteran · ⚡ Unstoppable\n"
-        "`/badges` — see how to earn all 22 and what each pays"
+        "`/badges` — see how to earn them all and what each pays"
     ), inline=False)
     embed.add_field(name="🔁 Slots autoplay", value=(
         "Faster spins, plus autoplay: press **Auto** or use `/slots <bet> spins:20 stop_loss:100`.\n"

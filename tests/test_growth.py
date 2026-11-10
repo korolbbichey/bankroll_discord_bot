@@ -420,9 +420,9 @@ def test_admin_badge_command(db, monkeypatch):
         return choices, replies
     choices, (given, again, wrong) = asyncio.run(go())
     assert [c.value for c in choices] == ["max_bet"]
-    assert "Big Spender" in given.args[0] and "150" in given.args[0] and given.kwargs["ephemeral"]
-    assert "max_bet" in db.get_badges(2) and db.get_balance(2) == STARTING_BALANCE + 150, "the reward is paid"
-    assert "already has" in again.args[0] and db.get_balance(2) == STARTING_BALANCE + 150, "never twice"
+    assert "Big Spender" in given.args[0] and "500" in given.args[0] and given.kwargs["ephemeral"]
+    assert "max_bet" in db.get_badges(2) and db.get_balance(2) == STARTING_BALANCE + 500, "the reward is paid"
+    assert "already has" in again.args[0] and db.get_balance(2) == STARTING_BALANCE + 500, "never twice"
     assert "No such badge" in wrong.args[0]
     db.set_balance(2, 20_000)
     later = progression.record_game(2, "coinflip", 10_000, 20_000)  # a real 10k bet after the manual badge

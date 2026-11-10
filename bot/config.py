@@ -52,15 +52,28 @@ DAILY_LEVEL_REWARD_LIMIT = 1000
 LEVEL_UP_REWARD = 25
 
 # How hard each badge is to get: sets the color of its medal and the coins it gives once.
+# Set by the real odds, not the bet: anything a 1-coin bet can reach in a few dozen tries is rare at most.
 BADGE_RARITY = {
     "first_win": "common", "explorer": "common", "generous": "common", "coin_10": "common", "double_win": "common",
-    "spins_100": "rare", "natural": "rare", "week_streak": "rare", "duelist": "rare", "multi_line": "rare",
-    "max_bet": "rare",
-    "rich": "epic", "grand_tour": "epic", "bullseye": "epic", "duel_5": "epic", "jackpot": "epic",
-    "diamond_line": "legendary", "podium": "legendary", "zero": "legendary", "veteran": "legendary",
-    "month_streak": "legendary", "full_house": "legendary",
+    "duelist": "common",
+    "spins_100": "rare", "natural": "rare", "multi_line": "rare", "streak_3": "rare", "bullseye": "rare",
+    "zero": "rare", "duel_5": "rare",
+    "rich": "epic", "grand_tour": "epic", "jackpot": "epic", "max_bet": "epic", "week_streak": "epic",
+    "diamond_line": "legendary", "podium": "legendary", "veteran": "legendary", "month_streak": "legendary",
+    "full_house": "legendary",
 }
 BADGE_REWARDS = {"common": 50, "rare": 150, "epic": 500, "legendary": 1500}
+# Badges that pay more than their rarity: Full House is ~1 in 36,000 spins.
+BADGE_REWARD_OVERRIDES = {"full_house": 10_000}
+
+
+def badge_coins(badge_id: str) -> int:
+    """The coins a badge pays once."""
+    return BADGE_REWARD_OVERRIDES.get(badge_id, BADGE_REWARDS[BADGE_RARITY[badge_id]])
+
+
+# Rewards before the rebalance of 2026-11-10; holders of badges that pay more now get the difference once.
+OLD_BADGE_COINS = {"max_bet": 150, "week_streak": 150, "full_house": 1500}
 # The day badges started paying. Badges earned before it are paid once when the bot starts (badge_backpay).
 BADGE_REWARDS_SINCE = "2026-11-06"
 

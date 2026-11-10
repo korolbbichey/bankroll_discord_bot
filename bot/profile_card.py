@@ -34,13 +34,13 @@ BAR_EMPTY = (255, 255, 255, 28)
 
 # Same order as progression.BADGES
 BADGE_ICONS = {
-    "first_win": "1f340", "explorer": "1f9ed", "spins_100": "1f3b0", "multi_line": "1f308",
-    "diamond_line": "1f48e", "natural": "1f0cf", "double_win": "270c", "coin_10": "1fa99",
-    "max_bet": "1f4b8", "week_streak": "1f525", "generous": "1f91d", "rich": "1f911", "podium": "1f3c6",
-    "duelist": "2694", "duel_5": "1f947", "bullseye": "1f3af", "zero": "1f7e2", "jackpot": "1f4b0",
-    "grand_tour": "1f5fa", "veteran": "1f396", "month_streak": "26a1", "full_house": "1f4af",
+    "first_win": "1f340", "explorer": "1f9ed", "grand_tour": "1f5fa", "spins_100": "1f3b0", "veteran": "1f396",
+    "multi_line": "1f308", "jackpot": "1f4b0", "diamond_line": "1f48e", "full_house": "1f4af",
+    "natural": "1f0cf", "double_win": "270c", "coin_10": "1fa99", "bullseye": "1f3af", "zero": "1f7e2",
+    "duelist": "2694", "duel_5": "1f947", "streak_3": "1f331", "week_streak": "1f525", "month_streak": "26a1",
+    "generous": "1f91d", "max_bet": "1f4b8", "rich": "1f911", "podium": "1f3c6",
 }
-BADGES_PER_ROW = 11
+BADGES_PER_ROW = 12
 RARITY_METALS = {  # (light, dark) of the medal's rim
     "common": ((236, 168, 110), (128, 72, 34)),     # bronze
     "rare": ((244, 246, 252), (126, 134, 152)),     # silver

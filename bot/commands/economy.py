@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 
 from ..config import (
-    BADGE_RARITY, BADGE_REWARDS, BAILOUT_AMOUNT, MAX_TRANSFER, MIN_BET, QUICK_PLAY_BET, STARTING_BALANCE,
+    BADGE_RARITY, BAILOUT_AMOUNT, MAX_TRANSFER, MIN_BET, QUICK_PLAY_BET, STARTING_BALANCE, badge_coins,
 )
 from ..games.blackjack import start_blackjack
 from ..games.coinflip import start_coinflip
@@ -30,9 +30,10 @@ from ..progression import (
 
 LEADERBOARD_SIZE = 10
 GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack", "roulette": "Roulette", "duel": "Duels"}
+WARM_STREAK = 3
 WEEK_STREAK = 7
-RARITY_MARKS = {"common": "🥉", "rare": "🥈", "epic": "🥇", "legendary": "💎"}
 MONTH_STREAK = 30
+RARITY_MARKS = {"common": "🥉", "rare": "🥈", "epic": "🥇", "legendary": "💎"}
 AVATAR_TIMEOUT = 3  # seconds per avatar
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,8 @@ def setup(client):
         embed.add_field(name="💰 Balance", value=fmt(claim.balance), inline=True)
         embed.set_footer(text=f"Come back in {wait} for {fmt(claim.next_reward)} coins. Miss a day and the streak resets.")
         await interaction.response.send_message(embed=embed, ephemeral=True, view=QuickPlayView())
-        streak_badges = [badge for badge, days in (("week_streak", WEEK_STREAK), ("month_streak", MONTH_STREAK))
+        streak_badges = [badge for badge, days in (("streak_3", WARM_STREAK), ("week_streak", WEEK_STREAK),
+                                                   ("month_streak", MONTH_STREAK))
                          if claim.streak >= days]
         await send_notice(interaction, safe_badges(interaction.user.id, streak_badges, check_wealth=True))
 
@@ -374,7 +376,7 @@ def setup(client):
             title=f"🏅 {display_name(target)}'s badges — {len(earned & BADGES_BY_ID.keys())} / {len(BADGES)}",
             description="\n".join(
                 f"{badge.emoji if badge.id in earned else '🔒'} **{badge.name}** — {badge.description}"
-                f" · {RARITY_MARKS[BADGE_RARITY[badge.id]]} +{fmt(BADGE_REWARDS[BADGE_RARITY[badge.id]])}"
+                f" · {RARITY_MARKS[BADGE_RARITY[badge.id]]} +{fmt(badge_coins(badge.id))}"
                 for badge in BADGES
             ),
             color=discord.Color.gold(),
