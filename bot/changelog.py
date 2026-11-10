@@ -25,6 +25,9 @@ class Entry:
 
 # Newest first.
 CHANGELOG: list[Entry] = [
+    Entry("2026-11-10-autoplay", "2026-11-10", "Smoother autoplay", (
+        "🔁 Autoplay plays each spin's animation once: the numbers update together with the next spin",
+    )),
     Entry("2026-11-09-bets", "2026-11-09", "Bigger bets and a new badge", (
         "💰 Max bet is now **100,000**",
         "💯 New legendary badge **Full House**: fill the whole slot grid with one symbol",

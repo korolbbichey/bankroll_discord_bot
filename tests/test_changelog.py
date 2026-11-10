@@ -114,5 +114,6 @@ def test_updates_command(db):
     call = asyncio.run(go())
     embed = call.kwargs["embed"]
     assert call.kwargs["ephemeral"] is True
-    assert embed.fields[0].name == "Nov 9 — Bigger bets and a new badge"
-    assert "100,000" in embed.fields[0].value
+    assert [field.name.split(" — ", 1)[1] for field in embed.fields] == [e.title for e in CHANGELOG[:5]], "newest first"
+    bets = next(field for field in embed.fields if "Bigger bets" in field.name)
+    assert bets.name == "Nov 9 — Bigger bets and a new badge" and "100,000" in bets.value

@@ -49,17 +49,24 @@ def fields(embed):
     return {f.name: f.value for f in embed.fields}
 
 
-def test_every_spin_is_animated_and_then_shows_its_result(db, monkeypatch, waits):
+def test_each_spin_is_one_edit_with_the_numbers_up_to_the_spin_before(db, monkeypatch, waits):
     view, interaction = autoplay(monkeypatch, 3, LOSS, SMALL_WIN, LOSS)
     calls = interaction.edit_original_response.call_args_list
-    spinning, landed = calls[2].kwargs, calls[3].kwargs  # the second spin
-    assert spinning["attachments"][0].filename == "spin.gif" and spinning["attachments"][0].fp.read(6) == b"GIF89a"
-    assert spinning["embed"].title == "🔁 Autoplay — spin 2/3 🎰"
-    assert fields(spinning["embed"])["📈 Net"] == "-10", "the result isn't shown before the reels stop"
-    assert "attachments" not in landed, "the result keeps the same GIF"
-    assert landed["embed"].title == "🔁 Autoplay — spin 2/3" and fields(landed["embed"])["📈 Net"] == "0"
-    assert landed["embed"].image.url == "attachment://spin.gif"
+    assert len(calls) == 4, "3 spins and the summary: editing again would replay the GIF"
+    second = calls[1].kwargs
+    assert second["attachments"][0].filename == "spin.gif" and second["attachments"][0].fp.read(6) == b"GIF89a"
+    assert second["embed"].title == "🔁 Autoplay — spin 2/3 🎰"
+    assert fields(second["embed"])["📈 Net"] == "-10", "the first spin's result, not this one's before the reels stop"
+    assert fields(calls[2].kwargs["embed"])["📈 Net"] == "0"
     assert animation_seconds(True) + slots.SLOTS_RESULT_DELAY_MARGIN in waits, "waits for the animation"
+
+
+def test_summary_shows_the_last_spin_as_a_still_picture(db, monkeypatch):
+    _, interaction = autoplay(monkeypatch, 2, LOSS, SMALL_WIN)
+    summary = interaction.edit_original_response.call_args.kwargs
+    still = summary["attachments"][0]
+    assert still.filename == "spin.png" and still.fp.read(8) == b"\x89PNG\r\n\x1a\n", "a PNG doesn't play again"
+    assert summary["embed"].image.url == "attachment://spin.png"
 
 
 def test_plays_every_spin_and_sums_up(db, monkeypatch):
@@ -68,8 +75,9 @@ def test_plays_every_spin_and_sums_up(db, monkeypatch):
     summary = sent_embed(interaction.edit_original_response)
     assert summary.title == "🔁 Autoplay over: all 3 spins played"
     assert fields(summary) == {
-        "🎲 Next bet": "10", "📈 Net": "-10", "💰 Balance": "90", "🔢 Spins": "3", "🏆 Best win": "+10"}
-    assert summary.color == discord.Color.red() and summary.image.url == "attachment://spin.gif"
+        "🎲 Next bet": "10", "📈 Net": "-10", "💰 Balance": "90", "🔢 Spins": "3", "🏆 Best win": "+10",
+        "🧾 Last spins": f"`#3` **-10**\n`#2` {CHERRY * 3} **+10**\n`#1` **-10**"}
+    assert summary.color == discord.Color.red() and summary.image.url == "attachment://spin.png"
     assert not view.autoplaying and not any(item.disabled for item in view.children)
     games, wins, losses, *_ = db.get_user_profile(1)["stats"]
     assert (games, wins, losses) == (3, 1, 2)
@@ -147,10 +155,14 @@ def test_failed_animation_still_plays(db, monkeypatch, waits):
         raise OSError("no font")
     monkeypatch.setattr(slots, "render_spin_gif", broken)
     _, interaction = autoplay(monkeypatch, 2, SMALL_WIN, LOSS)
-    first = interaction.edit_original_response.call_args_list[0]
+    calls = interaction.edit_original_response.call_args_list
+    first = calls[0]
     assert first.kwargs["attachments"] == [] and CHERRY in first.kwargs["embed"].description
+    assert fields(calls[1].kwargs["embed"])["📈 Net"] == "+10", "without a GIF the result is shown right away"
     assert db.get_balance(1) == STARTING_BALANCE
     assert all(seconds < 1 for seconds in waits), "no waiting for an animation that isn't there"
+    summary = calls[-1].kwargs
+    assert summary["attachments"] == [] and summary["embed"].image.url is None
 
 
 def test_slots_command_starts_autoplay(db, monkeypatch):
@@ -169,15 +181,15 @@ def test_slots_command_starts_autoplay(db, monkeypatch):
 
 def test_each_spin_shows_a_log_of_recent_spins(db, monkeypatch):
     _, interaction = autoplay(monkeypatch, 3, LOSS, SMALL_WIN, LOSS)
-    third = interaction.edit_original_response.call_args_list[5].kwargs["embed"]
-    assert fields(third)["🧾 Last spins"].splitlines() == ["`#3` **-10**", f"`#2` {CHERRY * 3} **+10**", "`#1` **-10**"]
-    first_spinning = interaction.edit_original_response.call_args_list[0].kwargs["embed"]
-    assert fields(first_spinning)["🧾 Last spins"] == "—"
+    calls = interaction.edit_original_response.call_args_list
+    third = calls[2].kwargs["embed"]
+    assert fields(third)["🧾 Last spins"].splitlines() == [f"`#2` {CHERRY * 3} **+10**", "`#1` **-10**"]
+    assert fields(calls[0].kwargs["embed"])["🧾 Last spins"] == "—"
 
 
 def test_log_keeps_the_last_five(db, monkeypatch):
     _, interaction = autoplay(monkeypatch, 7, *[LOSS] * 7)
-    last = interaction.edit_original_response.call_args_list[13].kwargs["embed"]
+    last = sent_embed(interaction.edit_original_response)  # the summary
     log = fields(last)["🧾 Last spins"].splitlines()
     assert len(log) == 5 and log[0].startswith("`#7`") and log[-1].startswith("`#3`")
 

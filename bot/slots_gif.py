@@ -328,3 +328,12 @@ def render_spin_gif(grid: list[list[str]], winning_cells: set[tuple[int, int]], 
     converted[0].save(output, format="GIF", save_all=True, append_images=converted[1:],
                       duration=durations, optimize=False, disposal=1)
     return output.getvalue()
+
+
+def last_frame_png(gif: bytes) -> bytes:
+    """The spin's final picture as a still PNG: unlike the GIF, it doesn't play again when the message is edited."""
+    with Image.open(io.BytesIO(gif)) as image:
+        image.seek(image.n_frames - 1)  # every frame is drawn in full, so the last one is complete
+        output = io.BytesIO()
+        image.convert("RGB").save(output, format="PNG", optimize=True)
+    return output.getvalue()

@@ -20,13 +20,14 @@ from ..config import (
 from ..database import get_balance, try_debit, credit, update_stats
 from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet
 from ..progression import Progress, track_game, send_notice
-from ..slots_gif import animation_seconds, render_spin_gif
+from ..slots_gif import animation_seconds, last_frame_png, render_spin_gif
 
 logger = logging.getLogger(__name__)
 
 _WEIGHTS = [SYMBOL_WEIGHTS[s] for s in SLOT_SYMBOLS]
 SPIN_COLOR = discord.Color.blurple()
 GIF_NAME = "spin.gif"
+STILL_NAME = "spin.png"  # the last spin's final frame, shown after autoplay
 running_autoplays: dict[int, int] = {}  # user id -> autoplays running now
 TOO_MANY_AUTOPLAYS = (f"🔁 You already have {AUTOPLAY_MAX_PER_PLAYER} autoplays running. "
                       "Wait for one to finish or press Stop on it first.")
@@ -291,7 +292,8 @@ class SlotView(discord.ui.View):
     async def autoplay(self, interaction: discord.Interaction, spins: int, stop_loss: int | None = None):
         """
         Play up to `spins` spins in a row, each with its animation. The interaction must already be responded to.
-        Every spin is shown twice, like a normal one: spinning with the old numbers, then the result once the reels stop.
+        Discord plays a GIF again whenever its message is edited, so each spin is a single edit: the new spin's
+        animation together with the numbers up to the spin before it. The summary shows the last spin as a still.
         """
         self.last_interaction = interaction
         self.autoplaying = self.spinning = True
@@ -301,6 +303,7 @@ class SlotView(discord.ui.View):
         played = net = best = 0
         progress = []
         log: list[str] = []
+        last_gif = None
         reason = f"all {spins} spins played"
 
         async def show(**kwargs):
@@ -321,7 +324,7 @@ class SlotView(discord.ui.View):
                 grid = roll_grid()
                 winning_lines = find_winning_lines(grid)
                 payout = sum(multiplier for _, _, multiplier in winning_lines) * self.bet
-                gif = await self.draw_spin(grid, winning_lines, payout)
+                gif = last_gif = await self.draw_spin(grid, winning_lines, payout)
                 spinning = self.autoplay_embed(f"🔁 Autoplay — spin {number}/{spins} 🎰", net, balance_during_spin, log,
                                                stop_loss, bool(gif), grid)
                 files = [discord.File(io.BytesIO(gif), filename=GIF_NAME)] if gif else []
@@ -339,9 +342,11 @@ class SlotView(discord.ui.View):
                 del log[AUTOPLAY_LOG_SIZE:]
                 self.timeout = GAME_TIMEOUT  # keeps the Stop button alive however long autoplay runs
                 if gif:
+                    # The result is on the GIF's last frame; the numbers come with the next spin (or the summary).
                     await asyncio.sleep(animation_seconds(bool(winning_lines)) + SLOTS_RESULT_DELAY_MARGIN)
-                await show(embed=self.autoplay_embed(f"🔁 Autoplay — spin {number}/{spins}", net, balance, log,
-                                                     stop_loss, bool(gif), grid))
+                else:
+                    await show(embed=self.autoplay_embed(f"🔁 Autoplay — spin {number}/{spins}", net, balance, log,
+                                                         stop_loss, False, grid))
 
                 if payout >= self.bet * AUTOPLAY_STOP_MULTIPLIER:
                     reason = f"big win, +{fmt(payout - self.bet)}!"
@@ -372,9 +377,17 @@ class SlotView(discord.ui.View):
         self.result.add_field(name="💰 Balance", value=fmt(get_balance(self.user_id)), inline=True)
         self.result.add_field(name="🔢 Spins", value=fmt(played), inline=True)
         self.result.add_field(name="🏆 Best win", value=signed(best) if best > 0 else "—", inline=True)
-        self.result.set_image(url=f"attachment://{GIF_NAME}")  # the last spin's animation, already in the message
+        self.result.add_field(name="🧾 Last spins", value="\n".join(log), inline=False)
+        attachments = []
+        if last_gif:
+            try:
+                attachments = [discord.File(io.BytesIO(await asyncio.to_thread(last_frame_png, last_gif)),
+                                            filename=STILL_NAME)]
+                self.result.set_image(url=f"attachment://{STILL_NAME}")
+            except Exception:
+                logger.exception("Failed to draw the autoplay summary picture")
         self.set_disabled(False)
-        await interaction.edit_original_response(embed=self.render(), view=self)
+        await interaction.edit_original_response(embed=self.render(), view=self, attachments=attachments)
         await send_notice(interaction, merge_progress(progress))
 
 
