@@ -3,9 +3,12 @@ Utility functions for the BankRoll Discord Bot.
 """
 
 import asyncio
+import io
+import logging
 
 import discord
 from discord import app_commands
+from PIL import Image
 
 from .config import MIN_BET, MAX_BET, CONFIRM_BET_SHARE, CONFIRM_BET_MIN_BALANCE
 from .database import get_balance, set_bet_confirmation, wants_bet_confirmation
@@ -13,6 +16,29 @@ from .database import get_balance, set_bet_confirmation, wants_bet_confirmation
 
 # Drawing images briefly takes tens of MB of memory, so only a couple are drawn at once.
 DRAW_SLOTS = asyncio.Semaphore(2)
+
+logger = logging.getLogger(__name__)
+
+
+def last_frame_png(gif: bytes) -> bytes:
+    """A game GIF's final picture as a PNG. Our GIFs draw every frame in full, so the last one is complete."""
+    with Image.open(io.BytesIO(gif)) as image:
+        image.seek(image.n_frames - 1)
+        output = io.BytesIO()
+        image.convert("RGB").save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
+async def still_of(gif: bytes, filename: str) -> discord.File | None:
+    """
+    The GIF's last frame as a file to show with the result. Discord plays a GIF again whenever its message is
+    edited, so the result swaps the animation for this still. None if it can't be drawn (keep the GIF then).
+    """
+    try:
+        return discord.File(io.BytesIO(await asyncio.to_thread(last_frame_png, gif)), filename=filename)
+    except Exception:
+        logger.exception("Failed to draw the still picture")
+        return None
 
 
 def fmt(amount: int) -> str:

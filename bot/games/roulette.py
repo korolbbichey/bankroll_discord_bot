@@ -18,11 +18,12 @@ from ..config import RESULT_DELAY_MARGIN
 from ..database import credit, get_balance, try_debit, update_stats
 from ..progression import send_notice, track_game
 from ..roulette_gif import RED_NUMBERS, animation_seconds, color_of, render_spin_gif
-from ..utils import Bet, DRAW_SLOTS, InvalidBet, confirm_big_bet, fmt, validate_bet
+from ..utils import Bet, DRAW_SLOTS, InvalidBet, confirm_big_bet, fmt, still_of, validate_bet
 
 logger = logging.getLogger(__name__)
 
 GIF_NAME = "roulette.gif"
+STILL_NAME = "roulette.png"  # the wheel at rest, shown with the result
 COLOR_EMOJI = {"red": "🔴", "black": "⚫", "green": "🟢"}
 
 
@@ -135,6 +136,7 @@ async def start_roulette(interaction: discord.Interaction, choice: RouletteBet, 
     footer = f"You bet on: {choice.name} • Bet: {fmt(bet)}"
     embed = discord.Embed(title="🎡 Spinning...", color=discord.Color.blurple())
     embed.set_footer(text=footer)
+    gif = None
     try:
         async with DRAW_SLOTS:
             gif = await asyncio.to_thread(render_spin_gif, number, choice.label, bet, payout)
@@ -146,6 +148,7 @@ async def start_roulette(interaction: discord.Interaction, choice: RouletteBet, 
     except Exception:
         # The game is already settled, so the player just gets the result without the animation.
         logger.exception("Roulette animation failed, sending the result as text")
+        gif = None
         embed = discord.Embed()
         embed.set_footer(text=footer)
 
@@ -157,7 +160,13 @@ async def start_roulette(interaction: discord.Interaction, choice: RouletteBet, 
         + f" • 💰 Balance: **{fmt(new_balance)}**"
     )
     embed.color = discord.Color.green() if win else discord.Color.red()
-    await interaction.edit_original_response(embed=embed)
+    # Editing the message would play the GIF again, so the result shows its last frame as a still.
+    still = await still_of(gif, STILL_NAME) if gif else None
+    if still:
+        embed.set_image(url=f"attachment://{STILL_NAME}")
+        await interaction.edit_original_response(embed=embed, attachments=[still])
+    else:
+        await interaction.edit_original_response(embed=embed)
     await send_notice(interaction, progress)
 
 

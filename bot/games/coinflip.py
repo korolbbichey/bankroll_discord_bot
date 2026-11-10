@@ -12,12 +12,13 @@ import logging
 from ..coinflip_gif import animation_seconds, render_flip_gif
 from ..config import RESULT_DELAY_MARGIN
 from ..database import get_balance, try_debit, credit, update_stats
-from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet
+from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet, still_of
 from ..progression import track_game, send_notice
 
 logger = logging.getLogger(__name__)
 
 GIF_NAME = "flip.gif"
+STILL_NAME = "flip.png"  # the landed coin, shown with the result
 
 
 async def start_coinflip(interaction: discord.Interaction, guess_value: str, bet: int):
@@ -42,6 +43,7 @@ async def start_coinflip(interaction: discord.Interaction, guess_value: str, bet
 
     embed = discord.Embed(title="🪙 Flipping...", color=discord.Color.blurple())
     embed.set_footer(text=f"You guessed: {guess_value.capitalize()} • Bet: {fmt(bet)}")
+    gif = None
     try:
         async with DRAW_SLOTS:
             gif = await asyncio.to_thread(render_flip_gif, outcome, guess_value, bet)
@@ -53,6 +55,7 @@ async def start_coinflip(interaction: discord.Interaction, guess_value: str, bet
     except Exception:
         # The game is already settled, so the player just gets the result without the animation.
         logger.exception("Coinflip animation failed, sending the result as text")
+        gif = None
         embed = discord.Embed()
         embed.set_footer(text=f"You guessed: {guess_value.capitalize()} • Bet: {fmt(bet)}")
 
@@ -63,7 +66,13 @@ async def start_coinflip(interaction: discord.Interaction, guess_value: str, bet
         f"{'You win' if win else 'You lost'} **{fmt(bet)}** coins • 💰 Balance: **{fmt(new_balance)}**"
     )
     embed.color = discord.Color.green() if win else discord.Color.red()
-    await interaction.edit_original_response(embed=embed)
+    # Editing the message would play the GIF again, so the result shows its last frame as a still.
+    still = await still_of(gif, STILL_NAME) if gif else None
+    if still:
+        embed.set_image(url=f"attachment://{STILL_NAME}")
+        await interaction.edit_original_response(embed=embed, attachments=[still])
+    else:
+        await interaction.edit_original_response(embed=embed)
     await send_notice(interaction, progress)
 
 

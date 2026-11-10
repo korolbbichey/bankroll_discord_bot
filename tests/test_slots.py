@@ -169,8 +169,28 @@ def test_spin_sends_a_gif_then_the_result(db, monkeypatch):
     assert first.kwargs["embed"].title == "🎰 Spinning..."
     assert first.kwargs["embed"].image.url == "attachment://spin.gif"
     assert all(item.disabled for item in view.children) is False, "buttons are back after the spin"
-    assert "attachments" not in last.kwargs, "the result keeps the same GIF"
-    assert last.kwargs["embed"].image.url == "attachment://spin.gif"
+    still = last.kwargs["attachments"][0]
+    assert still.filename == "spin.png" and still.fp.read(8) == b"\x89PNG\r\n\x1a\n", "a still doesn't play again"
+    assert last.kwargs["embed"].image.url == "attachment://spin.png"
+
+
+def test_last_frame_is_the_result():
+    from bot.utils import last_frame_png
+    gif_bytes = render_spin_gif([[LEMON] * 3] * 3, set(), 10, 0, seed=1)
+    gif = Image.open(io.BytesIO(gif_bytes))
+    gif.seek(gif.n_frames - 1)
+    still = Image.open(io.BytesIO(last_frame_png(gif_bytes)))
+    assert still.size == gif.size and still.tobytes() == gif.convert("RGB").tobytes()
+
+
+def test_result_keeps_the_gif_if_the_still_fails(db, monkeypatch):
+    def broken(gif):
+        raise OSError("no")
+    from bot import utils
+    monkeypatch.setattr(utils, "last_frame_png", broken)
+    _, interaction = run_spin(monkeypatch, [[LEMON, CHERRY, BELL], [STAR, MELON, DIAMOND], [CHERRY, BELL, LEMON]])
+    last = interaction.edit_original_response.call_args
+    assert "attachments" not in last.kwargs and last.kwargs["embed"].image.url == "attachment://spin.gif"
 
 
 def test_gif_plays_once_and_lands_on_the_grid():

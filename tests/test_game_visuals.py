@@ -68,8 +68,9 @@ def test_coinflip_sends_a_gif_then_the_result(bot, db, monkeypatch, instant):
     assert titles == ["🪙 Flipping...", "🎉 You won!"]
     first, last = interaction.edit_original_response.call_args_list
     assert first.kwargs["attachments"][0].filename == "flip.gif"
-    assert "attachments" not in last.kwargs
-    assert last.kwargs["embed"].title == "🎉 You won!" and last.kwargs["embed"].image.url == "attachment://flip.gif"
+    still = last.kwargs["attachments"][0]
+    assert still.filename == "flip.png" and still.fp.read(8) == b"\x89PNG\r\n\x1a\n", "a still doesn't play again"
+    assert last.kwargs["embed"].title == "🎉 You won!" and last.kwargs["embed"].image.url == "attachment://flip.png"
 
 
 def test_coinflip_loss(bot, db, monkeypatch, instant):

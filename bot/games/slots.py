@@ -18,16 +18,16 @@ from ..config import (
     AUTOPLAY_MAX_PER_PLAYER,
 )
 from ..database import get_balance, try_debit, credit, update_stats
-from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet
+from ..utils import validate_bet, fmt, Bet, DRAW_SLOTS, confirm_big_bet, still_of
 from ..progression import Progress, track_game, send_notice
-from ..slots_gif import animation_seconds, last_frame_png, render_spin_gif
+from ..slots_gif import animation_seconds, render_spin_gif
 
 logger = logging.getLogger(__name__)
 
 _WEIGHTS = [SYMBOL_WEIGHTS[s] for s in SLOT_SYMBOLS]
 SPIN_COLOR = discord.Color.blurple()
 GIF_NAME = "spin.gif"
-STILL_NAME = "spin.png"  # the last spin's final frame, shown after autoplay
+STILL_NAME = "spin.png"  # a spin's final frame, shown with its result
 running_autoplays: dict[int, int] = {}  # user id -> autoplays running now
 TOO_MANY_AUTOPLAYS = (f"🔁 You already have {AUTOPLAY_MAX_PER_PLAYER} autoplays running. "
                       "Wait for one to finish or press Stop on it first.")
@@ -252,7 +252,10 @@ class SlotView(discord.ui.View):
             title, color = f"😢 You lost {fmt(self.bet)}", discord.Color.red()
 
         self.result = discord.Embed(title=title, color=color)
-        self.result.set_image(url=f"attachment://{GIF_NAME}")  # the GIF already in the message
+        # Editing the message would play the GIF again, so the result shows its last frame as a still.
+        still = await still_of(gif, STILL_NAME)
+        attachments = [still] if still else None
+        self.result.set_image(url=f"attachment://{STILL_NAME if still else GIF_NAME}")
         self.result.add_field(name="🎲 Next bet", value=fmt(self.bet), inline=True)  # updated by render()
         self.result.add_field(name="🏆 Payout", value=fmt(payout), inline=True)
         self.result.add_field(name="💰 Balance", value=fmt(new_balance), inline=True)
@@ -262,7 +265,10 @@ class SlotView(discord.ui.View):
             ), inline=False)
 
         self.set_disabled(False)
-        await interaction.edit_original_response(embed=self.render(), view=self)
+        if attachments:
+            await interaction.edit_original_response(embed=self.render(), view=self, attachments=attachments)
+        else:
+            await interaction.edit_original_response(embed=self.render(), view=self)
         await send_notice(interaction, progress)
 
     async def draw_spin(self, grid: list, winning_lines: list, payout: int) -> bytes | None:
@@ -378,14 +384,10 @@ class SlotView(discord.ui.View):
         self.result.add_field(name="🔢 Spins", value=fmt(played), inline=True)
         self.result.add_field(name="🏆 Best win", value=signed(best) if best > 0 else "—", inline=True)
         self.result.add_field(name="🧾 Last spins", value="\n".join(log), inline=False)
-        attachments = []
-        if last_gif:
-            try:
-                attachments = [discord.File(io.BytesIO(await asyncio.to_thread(last_frame_png, last_gif)),
-                                            filename=STILL_NAME)]
-                self.result.set_image(url=f"attachment://{STILL_NAME}")
-            except Exception:
-                logger.exception("Failed to draw the autoplay summary picture")
+        still = await still_of(last_gif, STILL_NAME) if last_gif else None
+        attachments = [still] if still else []
+        if still:
+            self.result.set_image(url=f"attachment://{STILL_NAME}")
         self.set_disabled(False)
         await interaction.edit_original_response(embed=self.render(), view=self, attachments=attachments)
         await send_notice(interaction, merge_progress(progress))

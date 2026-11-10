@@ -117,6 +117,8 @@ def test_win_on_red(bot, db, monkeypatch):
     assert first.kwargs["attachments"][0].filename == "roulette.gif"
     embed = sent_embed(interaction.edit_original_response)
     assert embed.title == "🎉 You won!" and "5 🔴 Red" in embed.description
+    still = interaction.edit_original_response.call_args.kwargs["attachments"][0]
+    assert still.filename == "roulette.png" and embed.image.url == "attachment://roulette.png", "no replay"
     assert db.get_game_stats(1)["roulette"] == (1, 1, 10)
 
 
