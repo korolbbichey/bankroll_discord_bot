@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
 from bot.database import (
     init_db, mark_announcement_shown, refund_pending_duels, save_username, take_backpay_notice,
-    get_changelog_seen, mark_changelog_seen,
+    get_changelog_seen, mark_changelog_seen, take_xp_comeback_notice,
 )
 from bot import changelog
 from bot.utils import display_name, avatar_hash, InvalidBet
@@ -89,6 +89,7 @@ class BankRollBot(commands.Bot):
         self.remember_name(interaction.user)
         await self.maybe_announce(interaction)
         await self.maybe_tell_backpay(interaction)
+        await self.maybe_tell_xp_comeback(interaction)
         await self.maybe_tell_changes(interaction)
 
     def remember_name(self, user: discord.abc.User):
@@ -130,6 +131,19 @@ class BankRollBot(commands.Bot):
                     f"badge{'s' if badges != 1 else ''} you collected before. Thanks for playing!", ephemeral=True)
         except Exception:
             logger.exception("Failed to tell about the badge backpay")
+
+    async def maybe_tell_xp_comeback(self, interaction: discord.Interaction):
+        """Tell a player, privately and once, about the XP given back for the old daily XP limit."""
+        if not interaction.response.is_done():
+            return
+        try:
+            xp = take_xp_comeback_notice(interaction.user.id)
+            if xp:
+                await interaction.followup.send(
+                    f"📈 The daily XP limit is gone! You got back **+{xp:,} XP** you missed while it was on. "
+                    "Check your level with `/profile`.", ephemeral=True)
+        except Exception:
+            logger.exception("Failed to tell about the XP given back")
 
     async def maybe_tell_changes(self, interaction: discord.Interaction):
         """Tell a player, privately and once, what changed since they were last told (bot/changelog.py)."""

@@ -278,3 +278,57 @@ def test_players_are_told_once(db, tmp_path, monkeypatch):
     assert "+200 coins" in first.call_args.args[0] and "2 badges" in first.call_args.args[0]
     assert first.call_args.kwargs["ephemeral"] is True
     assert second.await_count == 0 and other.await_count == 0
+
+
+# ---------- XP given back for the old daily XP limit ----------
+
+def database_from_the_xp_limit_days(db):
+    """Players and days as the daily XP limit left them, then a start without the xp_comeback table yet."""
+    import sqlite3
+    conn = sqlite3.connect(db.DB_FILE)
+    conn.executescript("""
+        DROP TABLE xp_comeback;
+        INSERT INTO players (user_id, xp, first_played) VALUES (1, 4000, '2026-11-01'), (2, 900, '2026-11-01');
+        -- player 1 wins 1 game in 4
+        INSERT INTO game_stats (user_id, game, games, wins, net) VALUES (1, 'slots', 1000, 250, 0), (2, 'slots', 90, 0, 0);
+        INSERT INTO player_days (day, user_id, games, xp) VALUES
+            ('2026-11-07', 1, 400, 1500),   -- hit the limit: 400 games = 4,000 XP + 100 wins x 5
+            ('2026-11-08', 1, 100, 1100),   -- under the limit: nothing missed
+            ('2026-11-09', 1, 200, 1500),   -- hit it again: 2,000 + 50 x 5
+            ('2026-11-06', 2, 90, 0);       -- before the limit (no XP recorded yet), never under it
+    """)
+    conn.commit()
+    conn.close()
+    db.init_db()
+
+
+def test_xp_missed_under_the_old_limit_is_given_back_once(db):
+    database_from_the_xp_limit_days(db)
+    missed = (4000 + 500 - 1500) + (2000 + 250 - 1500)
+    assert db.get_player_progress(1)[0] == 4000 + missed
+    assert db.get_player_progress(2)[0] == 900, "only days that hit the limit count"
+    db.init_db()
+    assert db.get_player_progress(1)[0] == 4000 + missed, "only the first start gives it"
+
+
+@pytest.mark.rewards
+def test_xp_given_back_pays_no_coins(db):
+    db.set_balance(1, 500)
+    database_from_the_xp_limit_days(db)
+    assert db.get_balance(1) == 500, "levels from it don't pay level-up rewards"
+
+
+def test_players_are_told_about_their_xp_once(db):
+    database_from_the_xp_limit_days(db)
+
+    async def go():
+        client = main.BankRollBot()
+        sends = []
+        for user_id in (1, 1, 2):
+            interaction = make_interaction(user_id)
+            await client.maybe_tell_xp_comeback(interaction)
+            sends.append(interaction.followup.send)
+        return sends
+    first, second, other = asyncio.run(go())
+    assert "+3,750 XP" in first.call_args.args[0] and first.call_args.kwargs["ephemeral"] is True
+    assert second.await_count == 0 and other.await_count == 0

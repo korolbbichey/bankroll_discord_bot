@@ -223,6 +223,39 @@ def init_db():
                     cursor.execute("INSERT INTO coin_events (at, user_id, kind, amount, detail) VALUES (?, ?, ?, ?, ?)",
                                    (at, user_id, "badges", coins, f"{len(rewards)} old badges"))
 
+        # XP from games was capped at OLD_DAILY_XP_LIMIT a day for a few days. Players get back, once, the XP they
+        # missed on the days they hit it; XP only, level-ups from it pay no coins. `notified` as above.
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'xp_comeback'")
+        comeback_is_new = cursor.fetchone() is None
+        cursor.execute('''CREATE TABLE IF NOT EXISTS xp_comeback (
+            user_id INTEGER PRIMARY KEY,
+            xp INTEGER NOT NULL,
+            notified INTEGER DEFAULT 0
+        )''')
+        if comeback_is_new:
+            for user_id, xp in _missed_xp(cursor).items():
+                cursor.execute("UPDATE players SET xp = xp + ? WHERE user_id = ?", (xp, user_id))
+                cursor.execute("INSERT INTO xp_comeback (user_id, xp) VALUES (?, ?)", (user_id, xp))
+
+
+OLD_DAILY_XP_LIMIT = 1500
+
+
+def _missed_xp(cursor) -> dict[int, int]:
+    """
+    XP each player missed while games' XP was capped: on every day they reached the cap, every game would have
+    given 10 XP, plus 5 for a win. Wins per day weren't recorded, so they're estimated from the player's win rate.
+    """
+    win_rates = {user_id: wins / games for user_id, games, wins in cursor.execute(
+        "SELECT user_id, SUM(games), SUM(wins) FROM game_stats GROUP BY user_id HAVING SUM(games) > 0").fetchall()}
+    missed: dict[int, int] = {}
+    for user_id, games, xp in cursor.execute(
+            "SELECT user_id, games, xp FROM player_days WHERE xp >= ?", (OLD_DAILY_XP_LIMIT,)).fetchall():
+        earned = games * XP_PER_GAME + round(games * win_rates.get(user_id, 0)) * XP_PER_WIN
+        if earned > xp:
+            missed[user_id] = missed.get(user_id, 0) + earned - xp
+    return missed
+
 
 def _ensure_account(cursor, user_id):
     cursor.execute("INSERT OR IGNORE INTO currency (user_id, balance) VALUES (?, ?)",
@@ -478,6 +511,16 @@ def take_backpay_notice(user_id) -> tuple[int, int] | None:
         if cursor.rowcount != 1:
             return None
         return cursor.execute("SELECT coins, badges FROM badge_backpay WHERE user_id = ?", (user_id,)).fetchone()
+
+
+def take_xp_comeback_notice(user_id) -> int | None:
+    """The XP given back for the old daily XP limit if the player hasn't been told yet, and mark them as told."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE xp_comeback SET notified = 1 WHERE user_id = ? AND notified = 0", (user_id,))
+        if cursor.rowcount != 1:
+            return None
+        return cursor.execute("SELECT xp FROM xp_comeback WHERE user_id = ?", (user_id,)).fetchone()[0]
 
 
 def mark_announcement_shown(target_id, announcement_id: str) -> bool:
