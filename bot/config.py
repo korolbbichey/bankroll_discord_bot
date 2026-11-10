@@ -45,9 +45,9 @@ MAX_TRANSFER = 1_000_000
 # Progression: XP per finished game (any game) and bonus XP for a win.
 XP_PER_GAME = 10
 XP_PER_WIN = 5
-# XP from games stops for the day (UTC) after this much: without it, autoplay at the minimum bet
-# earns more in level rewards than it loses. ~130 games a day.
-DAILY_XP_LIMIT = 1500
+# Level-up rewards pay at most this many coins a day (UTC); XP and levels keep growing after that.
+# Without it, autoplay at the minimum bet earns more in level rewards than it loses.
+DAILY_LEVEL_REWARD_LIMIT = 1000
 # Coins for reaching a level: the new level times this.
 LEVEL_UP_REWARD = 25
 

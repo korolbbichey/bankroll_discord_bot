@@ -11,9 +11,10 @@ from datetime import datetime, timezone
 
 import discord
 
-from .config import XP_PER_GAME, XP_PER_WIN, DAILY_XP_LIMIT, BADGE_RARITY, BADGE_REWARDS, LEVEL_UP_REWARD
+from .config import XP_PER_GAME, XP_PER_WIN, DAILY_LEVEL_REWARD_LIMIT, BADGE_RARITY, BADGE_REWARDS, LEVEL_UP_REWARD
 from .database import (
     record_game_result, get_game_stats, award_badges, get_balance, get_rank, get_player_count, credit,
+    claim_level_reward,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,7 @@ class Progress:
     level_after: int = 1
     new_badges: list[Badge] = field(default_factory=list)
     coins: int = 0  # reward for the new level and badges, already paid
-    xp_limit_reached: bool = False  # this game used up the day's XP from games
+    reward_limited: bool = False  # part of the level-up reward wasn't paid: the day's limit is reached
 
     @property
     def leveled_up(self) -> bool:
@@ -140,24 +141,36 @@ class Progress:
             lines.append(f"🏅 **New badge:** {badge.emoji} {badge.name} — {badge.description}")
         if self.coins:
             lines.append(f"🎁 **+{self.coins:,} coins** reward!")
-        if self.xp_limit_reached:
-            lines.append(f"📊 You've earned today's {DAILY_XP_LIMIT:,} XP from games. "
-                         "Keep playing, XP comes back tomorrow (UTC).")
+        if self.reward_limited:
+            lines.append(f"📊 Level-up rewards are limited to {DAILY_LEVEL_REWARD_LIMIT:,} coins a day and you've "
+                         "reached today's. Your levels keep growing; rewards are back tomorrow (UTC).")
         return "\n".join(lines) or None
 
 
+def level_reward(level_before: int, level_after: int) -> int:
+    """Coins for every level reached: the level times LEVEL_UP_REWARD."""
+    return sum(level * LEVEL_UP_REWARD for level in range(level_before + 1, level_after + 1))
+
+
+def badge_reward(badge_ids: list[str]) -> int:
+    """Coins for each new badge by its rarity."""
+    return sum(BADGE_REWARDS[BADGE_RARITY[badge]] for badge in badge_ids)
+
+
 def reward_for(level_before: int, level_after: int, badge_ids: list[str]) -> int:
-    """Coins for every level reached (the level times LEVEL_UP_REWARD) and for each new badge by its rarity."""
-    levels = sum(level * LEVEL_UP_REWARD for level in range(level_before + 1, level_after + 1))
-    return levels + sum(BADGE_REWARDS[BADGE_RARITY[badge]] for badge in badge_ids)
+    """The full reward before the daily limit on level-ups."""
+    return level_reward(level_before, level_after) + badge_reward(badge_ids)
 
 
 def _progress(user_id, level_before: int, level_after: int, new: list[str]) -> Progress:
-    """Pay the reward and describe what changed."""
-    coins = reward_for(level_before, level_after, new)
-    if coins:
-        credit(user_id, coins)
-    return Progress(level_before, level_after, [BADGES_BY_ID[b] for b in new], coins)
+    """Pay the reward and describe what changed. Level-up rewards count toward the daily limit, badges don't."""
+    for_levels = level_reward(level_before, level_after)
+    paid_for_levels = claim_level_reward(user_id, _today(), for_levels, DAILY_LEVEL_REWARD_LIMIT) if for_levels else 0
+    for_badges = badge_reward(new)
+    if for_badges:
+        credit(user_id, for_badges)
+    return Progress(level_before, level_after, [BADGES_BY_ID[b] for b in new], paid_for_levels + for_badges,
+                    reward_limited=paid_for_levels < for_levels)
 
 
 def _today() -> str:
@@ -183,9 +196,8 @@ def record_game(user_id, game: str, bet: int, payout: int, *, winning_combos: li
     """
     today = _today()
     won = payout > bet
-    xp_before, xp_after, xp_today = record_game_result(user_id, game, won, payout - bet,
-                                                       XP_PER_GAME + (XP_PER_WIN if won else 0), today, DAILY_XP_LIMIT)
-    limit_reached = xp_after > xp_before and xp_today >= DAILY_XP_LIMIT
+    xp_before, xp_after = record_game_result(user_id, game, won, payout - bet,
+                                             XP_PER_GAME + (XP_PER_WIN if won else 0), today)
 
     stats = get_game_stats(user_id)
     candidates = []
@@ -227,9 +239,7 @@ def record_game(user_id, game: str, bet: int, payout: int, *, winning_combos: li
     candidates += _wealth_badges(user_id)
 
     new = award_badges(user_id, candidates, today)
-    progress = _progress(user_id, level_for_xp(xp_before), level_for_xp(xp_after), new)
-    progress.xp_limit_reached = limit_reached
-    return progress
+    return _progress(user_id, level_for_xp(xp_before), level_for_xp(xp_after), new)
 
 
 def track_game(user_id, game: str, bet: int, payout: int, **details) -> Progress | None:

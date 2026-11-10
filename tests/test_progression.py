@@ -55,27 +55,42 @@ def test_xp_per_game_and_level_up(db):
     assert "Level up" in progress.notice()
 
 
-def test_daily_xp_limit(db, monkeypatch):
-    monkeypatch.setattr(progression, "DAILY_XP_LIMIT", 25)
-    monkeypatch.setattr(progression, "_today", lambda: "2026-11-06")
-    first, second = record_game(1, "coinflip", 10, 0), record_game(1, "coinflip", 10, 20)  # 10 + 15 = 25 XP
-    assert db.get_player_progress(1)[0] == 25
-    assert not first.xp_limit_reached and second.xp_limit_reached
-    assert "today's 25 XP" in second.notice()
-    after = record_game(1, "coinflip", 10, 20)
-    assert db.get_player_progress(1)[0] == 25, "no XP after the limit"
-    assert not after.xp_limit_reached and after.notice() is None, "the limit is announced once"
-    assert db.get_game_stats(1)["coinflip"][0] == 3, "games still count"
-    monkeypatch.setattr(progression, "_today", lambda: "2026-11-07")
-    record_game(1, "coinflip", 10, 0)
-    assert db.get_player_progress(1)[0] == 35, "XP comes back the next day"
+def level_up(user_id):
+    """Play coinflip losses until the next level-up and return that game's progress."""
+    while True:
+        progress = record_game(user_id, "coinflip", 1, 0)
+        if progress.leveled_up:
+            return progress
 
 
-def test_daily_xp_limit_cuts_the_last_game(db, monkeypatch):
-    monkeypatch.setattr(progression, "DAILY_XP_LIMIT", 18)
-    record_game(1, "coinflip", 10, 0)
-    progress = record_game(1, "coinflip", 10, 20)
-    assert db.get_player_progress(1)[0] == 18 and progress.xp_limit_reached
+@pytest.mark.rewards
+def test_xp_has_no_daily_limit(db):
+    for _ in range(300):
+        record_game(1, "coinflip", 1, 0)
+    assert db.get_player_progress(1)[0] == 300 * XP_PER_GAME
+
+
+@pytest.mark.rewards
+def test_level_rewards_have_a_daily_limit(db, monkeypatch):
+    monkeypatch.setattr(progression, "DAILY_LEVEL_REWARD_LIMIT", 100)
+    monkeypatch.setattr(progression, "_today", lambda: "2026-11-10")
+    db.set_balance(1, 0)
+    level_2, level_3 = level_up(1), level_up(1)  # 50 + 75 coins, but only 100 a day
+    assert (level_2.coins, level_2.reward_limited) == (50, False)
+    assert (level_3.coins, level_3.reward_limited) == (50, True), "only what's left of the limit"
+    assert "limited to 100 coins a day" in level_3.notice() and "+50 coins" in level_3.notice()
+    level_4 = level_up(1)
+    assert level_4.level_after == 4 and level_4.coins == 0 and level_4.reward_limited, "levels keep growing"
+    assert db.get_balance(1) == 100
+    monkeypatch.setattr(progression, "_today", lambda: "2026-11-11")
+    assert level_up(1).coins == 100, "the limit resets the next day (level 5 pays 125, the limit is 100)"
+
+
+@pytest.mark.rewards
+def test_badge_rewards_are_not_limited(db, monkeypatch):
+    monkeypatch.setattr(progression, "DAILY_LEVEL_REWARD_LIMIT", 0)
+    progress = record_game(1, "coinflip", 10, 20)  # first win
+    assert progress.coins == 50 and not progress.reward_limited
 
 
 def test_new_title_is_announced(db):

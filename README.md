@@ -27,7 +27,7 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 
 ### User Profiles
 - **Profile** (`/profile [@user]`) - An image card drawn with Pillow (`bot/profile_card.py`; asset credits in `bot/assets/CREDITS.md`). Falls back to a text version if drawing fails. Avatars are downloaded only to draw the card and are never stored. It shows:
-  - **Level and title** — every game gives XP (10, +5 for a win), up to 1,500 XP from games per UTC day (`DAILY_XP_LIMIT`), so autoplay at the minimum bet can't farm level rewards. Titles: 🪙 Rookie (1) → 🎲 Gambler (3) → 💼 High Roller (6) → 🎩 Card Shark (10) → 👑 Casino King (15) → 💎 Legend (25). The card color follows the title
+  - **Level and title** — every game gives XP (10, +5 for a win) with no daily limit. Level-up rewards pay at most 1,000 coins per UTC day (`DAILY_LEVEL_REWARD_LIMIT`), so autoplay at the minimum bet can't farm them; badge rewards aren't limited. Titles: 🪙 Rookie (1) → 🎲 Gambler (3) → 💼 High Roller (6) → 🎩 Card Shark (10) → 👑 Casino King (15) → 💎 Legend (25). The card color follows the title
   - **Badges** — 22 achievements (first win, 100 spins, 💎💎💎 line, natural 21, duel wins, a roulette number, 7- and 30-day streaks, 10,000 coins, top 3, a full grid of one symbol, ...) plus a hint for the next one
   - **Stats** — games, win rate and best win per game, total won, favorite game and lucky symbol, playing since
 

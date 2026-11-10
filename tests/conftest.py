@@ -40,7 +40,8 @@ def no_rewards(request, monkeypatch):
     """
     if "rewards" not in request.keywords:
         from bot import progression
-        monkeypatch.setattr(progression, "reward_for", lambda *args: 0)
+        monkeypatch.setattr(progression, "level_reward", lambda *args: 0)
+        monkeypatch.setattr(progression, "badge_reward", lambda *args: 0)
 
 
 def make_user(user_id: int, name: str = None, global_name: str = None, bot: bool = False):

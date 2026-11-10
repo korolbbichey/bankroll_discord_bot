@@ -25,6 +25,10 @@ class Entry:
 
 # Newest first.
 CHANGELOG: list[Entry] = [
+    Entry("2026-11-10-levels", "2026-11-10", "Level up as much as you play", (
+        "📈 No more daily XP limit: every game counts toward your level again",
+        "🎁 Level-up rewards are limited to 1,000 coins a day instead. Badge rewards have no limit",
+    )),
     Entry("2026-11-10-autoplay", "2026-11-10", "Smoother autoplay", (
         "🔁 Autoplay plays each spin's animation once: the numbers update together with the next spin",
         "🎰 Slots, roulette and coinflip no longer replay the animation when the result appears",
