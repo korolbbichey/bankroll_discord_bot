@@ -25,6 +25,12 @@ class Entry:
 
 # Newest first.
 CHANGELOG: list[Entry] = [
+    Entry("2026-11-12-work", "2026-11-12", "Bigger promotions at /work", (
+        "💼 3 new ranks: Casino Director (120 shifts), Casino Owner (200) and Tycoon (300)",
+        "📈 Every rank now multiplies your pay: from ×1.2 as a Dealer up to ×2.7 as a Tycoon",
+        "💵 The result shows how much of your pay is your rank's bonus",
+        "🏅 New legendary badge **Tycoon** for reaching the top rank (1,500 coins)",
+    )),
     Entry("2026-11-10-badges", "2026-11-10", "Badge rewards rebalanced", (
         "💯 **Full House** now pays **10,000** coins",
         "💸 Big Spender and 🔥 On Fire now pay 500",

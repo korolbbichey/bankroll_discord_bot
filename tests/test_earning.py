@@ -86,9 +86,47 @@ def test_tasks_are_right():
 
 
 def test_ranks():
-    assert rank_for(1) == ("Trainee", 0)
-    assert rank_for(10)[0] == "Dealer" and rank_for(500)[0] == "Casino Manager"
-    assert next_rank(1) == (9, "Dealer") and next_rank(75) is None
+    assert rank_for(1) == ("Trainee", 1.0)
+    assert rank_for(10)[0] == "Dealer" and rank_for(75)[0] == "Casino Manager"
+    assert rank_for(120)[0] == "Casino Director" and rank_for(200)[0] == "Casino Owner"
+    assert rank_for(300) == ("Tycoon", 2.7) and rank_for(5000)[0] == "Tycoon"
+    assert next_rank(1) == (9, "Dealer", 1.2) and next_rank(78) == (42, "Casino Director", 2.0)
+    assert next_rank(300) is None
+    multipliers = [multiplier for _, _, multiplier in work.WORK_RANKS]
+    assert multipliers == sorted(multipliers) and len(set(multipliers)) == len(multipliers), "every promotion pays more"
+
+
+def test_rank_multiplies_the_pay_and_shows_the_bonus(db):
+    task = work.Task("job", "?", ["a", "b", "c"], 0)
+
+    async def go(shifts):
+        view = WorkView(1, task, shifts, random.Random(5))
+        press = make_interaction(1, done=False)
+        await view.finish(press, 0)
+        return sent_embed(press.response.edit_message)
+    base = random.Random(5).randint(*WORK_PAY)
+    trainee = asyncio.run(go(1))
+    assert trainee.title == f"✅ Great job! +{base} coins" and trainee.description is None, "no bonus to show"
+    manager = asyncio.run(go(80))
+    earned = round(base * 1.7)
+    assert manager.title == f"✅ Great job! +{earned} coins"
+    assert manager.description == f"💵 {base} pay + **{earned - base}** Casino Manager bonus (×1.7)"
+    assert "40 more to become Casino Director (×2 pay)" in manager.footer.text
+
+
+@pytest.mark.rewards
+def test_top_rank_earns_tycoon_once(db):
+    task = work.Task("job", "?", ["a", "b", "c"], 0)
+
+    async def go(shifts, pick):
+        view = WorkView(1, task, shifts, random.Random(1))
+        press = make_interaction(1, done=False)
+        await view.finish(press, pick)
+        return press.followup.send
+    assert asyncio.run(go(299, 0)).await_count == 0 and "tycoon" not in db.get_badges(1)
+    told = asyncio.run(go(300, 1))  # even a wrong answer on the shift that reaches the rank
+    assert "Tycoon" in told.call_args.args[0] and "tycoon" in db.get_badges(1)
+    assert asyncio.run(go(301, 0)).await_count == 0, "only once"
 
 
 def run_work(monkeypatch, pick):

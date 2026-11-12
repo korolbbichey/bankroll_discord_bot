@@ -38,7 +38,7 @@ BADGE_ICONS = {
     "multi_line": "1f308", "jackpot": "1f4b0", "diamond_line": "1f48e", "full_house": "1f4af",
     "natural": "1f0cf", "double_win": "270c", "coin_10": "1fa99", "bullseye": "1f3af", "zero": "1f7e2",
     "duelist": "2694", "duel_5": "1f947", "streak_3": "1f331", "week_streak": "1f525", "month_streak": "26a1",
-    "generous": "1f91d", "max_bet": "1f4b8", "rich": "1f911", "podium": "1f3c6",
+    "generous": "1f91d", "max_bet": "1f4b8", "rich": "1f911", "podium": "1f3c6", "tycoon": "1f4bc",
 }
 BADGES_PER_ROW = 12
 RARITY_METALS = {  # (light, dark) of the medal's rim

@@ -2,7 +2,8 @@
 /work for the BankRoll Discord Bot: a short casino job once an hour.
 
 Each shift is a small task with three to five answers on buttons. A right answer pays the full amount,
-a wrong or late one pays a little. Players get promoted as their shifts add up, and better jobs pay more.
+a wrong or late one pays a little. Players get promoted as their shifts add up, and every rank multiplies the pay
+for a right answer. The top rank earns the Tycoon badge.
 """
 
 import logging
@@ -13,7 +14,10 @@ import discord
 
 from ..config import WORK_ANSWER_SECONDS, WORK_COOLDOWN, WORK_PAY, WORK_PAY_WRONG, WORK_RANKS
 from ..database import credit, start_work_shift
+from ..progression import record_badges, send_notice
 from ..utils import fmt
+
+TOP_RANK_SHIFTS = WORK_RANKS[-1][0]  # reaching the top rank earns the Tycoon badge
 
 logger = logging.getLogger(__name__)
 
@@ -89,20 +93,20 @@ def dealer(rng: random.Random) -> Task:
 TASKS = [bartender, cashier, security, mechanic, dealer]
 
 
-def rank_for(shifts: int) -> tuple[str, int]:
-    """(job title, bonus per shift) after this many shifts."""
-    title, bonus = WORK_RANKS[0][1], WORK_RANKS[0][2]
-    for needed, name, extra in WORK_RANKS:
+def rank_for(shifts: int) -> tuple[str, float]:
+    """(job title, pay multiplier) after this many shifts."""
+    title, multiplier = WORK_RANKS[0][1], WORK_RANKS[0][2]
+    for needed, name, rank_multiplier in WORK_RANKS:
         if shifts >= needed:
-            title, bonus = name, extra
-    return title, bonus
+            title, multiplier = name, rank_multiplier
+    return title, multiplier
 
 
-def next_rank(shifts: int) -> tuple[int, str] | None:
-    """(shifts still needed, title) of the next promotion, or None at the top."""
-    for needed, name, _ in WORK_RANKS:
+def next_rank(shifts: int) -> tuple[int, str, float] | None:
+    """(shifts still needed, title, its pay multiplier) of the next promotion, or None at the top."""
+    for needed, name, multiplier in WORK_RANKS:
         if shifts < needed:
-            return needed - shifts, name
+            return needed - shifts, name, multiplier
     return None
 
 
@@ -136,12 +140,15 @@ class WorkView(discord.ui.View):
             await self.finish(interaction, index)
         return callback
 
-    def pay(self, correct: bool) -> int:
-        _, bonus = rank_for(self.shifts)
-        return self.rng.randint(*WORK_PAY) + bonus if correct else WORK_PAY_WRONG
+    def pay(self, correct: bool) -> tuple[int, int]:
+        """(coins earned, the base pay before the rank's multiplier). Only a right answer is multiplied."""
+        if not correct:
+            return WORK_PAY_WRONG, WORK_PAY_WRONG
+        base = self.rng.randint(*WORK_PAY)
+        return round(base * rank_for(self.shifts)[1]), base
 
-    def result_embed(self, correct: bool | None, earned: int, balance: int) -> discord.Embed:
-        title, _ = rank_for(self.shifts)
+    def result_embed(self, correct: bool | None, earned: int, balance: int, base: int | None = None) -> discord.Embed:
+        title, multiplier = rank_for(self.shifts)
         if correct:
             heading, color = f"✅ Great job! +{fmt(earned)} coins", discord.Color.green()
         elif correct is None:
@@ -151,6 +158,9 @@ class WorkView(discord.ui.View):
         embed = discord.Embed(title=heading, color=color)
         if correct is not True:
             embed.description = f"The answer was **{self.task.answers[self.task.correct]}**."
+        elif base is not None and earned > base:
+            # What the rank adds, so every promotion shows in the pay
+            embed.description = f"💵 {fmt(base)} pay + **{fmt(earned - base)}** {title} bonus (×{multiplier:g})"
         promoted = self.shifts in {needed for needed, _, _ in WORK_RANKS[1:]}
         embed.add_field(name="💼 Job", value=f"**{title}** · shift #{self.shifts}"
                         + ("\n🎉 **Promoted!**" if promoted else ""), inline=True)
@@ -158,7 +168,7 @@ class WorkView(discord.ui.View):
         upcoming = next_rank(self.shifts)
         footer = f"Next shift in {wait_text(WORK_COOLDOWN)}"
         if upcoming:
-            footer += f" • {upcoming[0]} more to become {upcoming[1]}"
+            footer += f" • {upcoming[0]} more to become {upcoming[1]} (×{upcoming[2]:g} pay)"
         embed.set_footer(text=footer)
         return embed
 
@@ -177,16 +187,17 @@ class WorkView(discord.ui.View):
         self.done = True
         self.stop()
         correct = chosen == self.task.correct
-        earned = self.pay(correct)
+        earned, base = self.pay(correct)
         balance = credit(self.user_id, earned)
         self.mark_answers(chosen)
-        await interaction.response.edit_message(embed=self.result_embed(correct, earned, balance), view=self)
+        await interaction.response.edit_message(embed=self.result_embed(correct, earned, balance, base), view=self)
+        await self.award_top_rank(interaction)
 
     async def on_timeout(self):
         if self.done:
             return
         self.done = True
-        earned = self.pay(False)
+        earned, _ = self.pay(False)
         balance = credit(self.user_id, earned)
         self.mark_answers(None)
         if self.message_interaction:
@@ -195,6 +206,16 @@ class WorkView(discord.ui.View):
                     embed=self.result_embed(None, earned, balance), view=self)
             except discord.HTTPException:
                 pass
+            await self.award_top_rank(self.message_interaction)
+
+    async def award_top_rank(self, interaction: discord.Interaction):
+        """The Tycoon badge once the player reaches the top rank (also for anyone already past it)."""
+        if self.shifts < TOP_RANK_SHIFTS:
+            return
+        try:
+            await send_notice(interaction, record_badges(self.user_id, ["tycoon"]))
+        except Exception:
+            logger.exception("Failed to award the Tycoon badge")
 
 
 def setup(client):

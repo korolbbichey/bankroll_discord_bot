@@ -60,7 +60,7 @@ BADGE_RARITY = {
     "zero": "rare", "duel_5": "rare",
     "rich": "epic", "grand_tour": "epic", "jackpot": "epic", "max_bet": "epic", "week_streak": "epic",
     "diamond_line": "legendary", "podium": "legendary", "veteran": "legendary", "month_streak": "legendary",
-    "full_house": "legendary",
+    "full_house": "legendary", "tycoon": "legendary",
 }
 BADGE_REWARDS = {"common": 50, "rare": 150, "epic": 500, "legendary": 1500}
 # Badges that pay more than their rarity: Full House is ~1 in 36,000 spins.
@@ -82,8 +82,10 @@ WORK_COOLDOWN = 3600
 WORK_PAY = (20, 35)
 WORK_PAY_WRONG = 8
 WORK_ANSWER_SECONDS = 20
-# (shifts needed, job title, bonus coins per shift)
-WORK_RANKS = [(0, "Trainee", 0), (10, "Dealer", 5), (30, "Pit Boss", 10), (75, "Casino Manager", 20)]
+# (shifts needed, job title, pay multiplier for a right answer). A multiplier, not a flat bonus, so every
+# promotion is clearly felt over the random base pay: a Tycoon earns 54-94 per shift against a Trainee's 20-35.
+WORK_RANKS = [(0, "Trainee", 1.0), (10, "Dealer", 1.2), (30, "Pit Boss", 1.4), (75, "Casino Manager", 1.7),
+              (120, "Casino Director", 2.0), (200, "Casino Owner", 2.3), (300, "Tycoon", 2.7)]
 
 # Bets over half the balance ask for a confirmation first, unless the player turned it off.
 CONFIRM_BET_SHARE = 0.5

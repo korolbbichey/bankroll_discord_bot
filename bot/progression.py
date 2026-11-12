@@ -79,7 +79,7 @@ class Badge:
     description: str
 
 
-# Grouped for reading: playing, slots, blackjack, coinflip, roulette, duels, daily streaks, coins.
+# Grouped for reading: playing, slots, blackjack, coinflip, roulette, duels, daily streaks, coins, work.
 BADGES = [
     Badge("first_win", "🍀", "First Win", "Win any game"),
     Badge("explorer", "🧭", "Explorer", "Play slots, blackjack and coinflip"),
@@ -104,6 +104,7 @@ BADGES = [
     Badge("max_bet", "💸", "Big Spender", "Bet 10,000 or more in one game"),
     Badge("rich", "🤑", "Five Figures", "Have 10,000 coins"),
     Badge("podium", "🏆", "Podium", "Reach the top 3 of the leaderboard"),
+    Badge("tycoon", "💼", "Tycoon", "Reach the top /work rank: 300 shifts"),
 ]
 BADGES_BY_ID = {badge.id: badge for badge in BADGES}
 
