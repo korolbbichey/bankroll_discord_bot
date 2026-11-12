@@ -121,6 +121,16 @@ def init_db():
             amount INTEGER NOT NULL,
             detail TEXT
         )''')
+        # Ideas and bug reports sent with /feedback, kept even if the DM to the owner fails
+        cursor.execute('''CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            at TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            user_name TEXT,
+            kind TEXT NOT NULL,
+            place TEXT,
+            message TEXT NOT NULL
+        )''')
         # Challengers' bets held while a duel waits for an answer, so they can be refunded after a restart.
         cursor.execute('''CREATE TABLE IF NOT EXISTS pending_duels (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -557,6 +567,31 @@ def take_topup_notice(user_id) -> int | None:
         if cursor.rowcount != 1:
             return None
         return cursor.execute("SELECT coins FROM badge_topup WHERE user_id = ?", (user_id,)).fetchone()[0]
+
+
+def save_feedback(user_id, user_name: str, kind: str, place: str, message: str, cooldown: int,
+                  now: datetime | None = None) -> int | None:
+    """
+    Store a /feedback message. Returns its number, or None if the player sent one less than `cooldown`
+    seconds ago (nothing is stored then).
+    """
+    now = now or datetime.now(timezone.utc)
+    since = (now - timedelta(seconds=cooldown)).isoformat(timespec="seconds")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM feedback WHERE user_id = ? AND at > ?", (user_id, since))
+        if cursor.fetchone():
+            return None
+        cursor.execute("INSERT INTO feedback (at, user_id, user_name, kind, place, message) VALUES (?, ?, ?, ?, ?, ?)",
+                       (now.isoformat(timespec="seconds"), user_id, user_name, kind, place, message))
+        return cursor.lastrowid
+
+
+def get_feedback(limit: int) -> list[tuple]:
+    """The latest feedback, newest first: (id, at, user_id, user_name, kind, place, message)."""
+    with get_connection() as conn:
+        return conn.execute("SELECT id, at, user_id, user_name, kind, place, message FROM feedback "
+                            "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
 
 
 def mark_announcement_shown(target_id, announcement_id: str) -> bool:

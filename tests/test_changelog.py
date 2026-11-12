@@ -115,5 +115,7 @@ def test_updates_command(db):
     embed = call.kwargs["embed"]
     assert call.kwargs["ephemeral"] is True
     assert [field.name.split(" — ", 1)[1] for field in embed.fields] == [e.title for e in CHANGELOG[:5]], "newest first"
-    bets = next(field for field in embed.fields if "Bigger bets" in field.name)
-    assert bets.name == "Nov 9 — Bigger bets and a new badge" and "100,000" in bets.value
+    newest = CHANGELOG[0]
+    day = date.fromisoformat(newest.date)
+    assert embed.fields[0].name == f"{day:%b} {day.day} — {newest.title}"
+    assert embed.fields[0].value.startswith(f"• {newest.lines[0]}")

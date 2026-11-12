@@ -12,7 +12,8 @@ import discord
 from discord import app_commands
 
 from ..config import OWNER_IDS, ADMIN_GUILD_ID
-from ..database import credit, try_debit, get_balance, get_bot_stats, set_balance
+from ..database import credit, try_debit, get_balance, get_bot_stats, get_feedback, set_balance
+from .feedback import KINDS
 from ..progression import BADGES, BADGES_BY_ID, record_badges
 from ..utils import fmt
 
@@ -111,6 +112,17 @@ def setup(client):
             for at, user_id, name, kind, amount, detail in data["events"]
         ) or "None logged yet", inline=False)
         embed.set_footer(text="Activity and coin movements are recorded from this update onward.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin.command(name="feedback", description="The latest ideas and bug reports from /feedback")
+    async def feedback_list(interaction: discord.Interaction):
+        rows = get_feedback(10)
+        embed = discord.Embed(title="📬 Latest feedback", color=discord.Color.blurple())
+        for number, at, user_id, name, kind, place, message in rows:
+            embed.add_field(name=f"{KINDS.get(kind, kind)} #{number} · {at[5:16].replace('T', ' ')} · {name or user_id}",
+                            value=f"{message[:900]}\n*`{user_id}` · {place}*", inline=False)
+        if not rows:
+            embed.description = "No feedback yet."
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def owner_only(interaction: discord.Interaction) -> bool:

@@ -47,7 +47,8 @@ def build_help_embed() -> discord.Embed:
         "`/leaderboard` — richest players and your position\n"
         "`/profile [user]` — player card: level, title and stats\n"
         "`/badges [user]` — every badge, how to earn it and the coins it pays\n"
-        "`/updates` — what changed in the bot lately"
+        "`/updates` — what changed in the bot lately\n"
+        "`/feedback` — send an idea or a bug report to the developer"
     ), inline=False)
     embed.add_field(name="🎰 Slot payouts (per line)", value="\n".join(
         f"{combo} — **{multiplier}x**" for combo, multiplier in SLOT_PAYOUTS.items()

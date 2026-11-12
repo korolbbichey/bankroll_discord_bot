@@ -25,6 +25,9 @@ class Entry:
 
 # Newest first.
 CHANGELOG: list[Entry] = [
+    Entry("2026-11-12-feedback", "2026-11-12", "Send feedback", (
+        "📬 `/feedback`: send an idea or a bug report straight to the developer",
+    )),
     Entry("2026-11-12-work", "2026-11-12", "Bigger promotions at /work", (
         "💼 3 new ranks: Casino Director (120 shifts), Casino Owner (200) and Tycoon (300)",
         "📈 Every rank now multiplies your pay: from ×1.2 as a Dealer up to ×2.7 as a Tycoon",

@@ -36,6 +36,7 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 Level-ups and new badges are announced to the player privately right after the game. Rules live in `bot/progression.py`.
 
 - **Updates** (`/updates`) - The latest changes
+- **Feedback** (`/feedback <kind> <message>`) - Send an idea, a bug report or anything else to the developer. It's saved, then DMed to the bot owner(s); one message every 5 minutes per player, up to 1,000 characters. For the DM to arrive, the owner needs a server in common with the bot and DMs from its members allowed; if a DM fails, `/admin feedback` still shows it
 
 ### Telling players what changed
 Every player-facing change gets an entry in `bot/changelog.py`, in the same commit as the change. After the deploy each player gets one private "What's new" message after their next command, listing every entry they missed (only entries from the last 14 days, and only changes made after they started playing). Players don't need to be on the support server. Big updates also get a public announcement once per server (`ANNOUNCEMENT_ID` in `bot/config.py`); their changelog entry has `notify=False` so players aren't told twice.
@@ -45,6 +46,7 @@ Balances are shared across every server, so admin commands are restricted to the
 - `/admin give <user> <amount>` - add coins to a player
 - `/admin take <user> <amount>` - remove coins from a player
 - `/admin set <user> <amount>` - set an exact balance
+- `/admin feedback` - the 10 latest messages sent with `/feedback`
 - `/admin badge <user> <badge>` - give a badge the player earned but didn't get, with its coin reward (never twice)
 - `/admin stats` - players, retention, popular games and the biggest coin movements. Players who played before per-game stats were added (Oct 30, 2026) count as old players, never as new ones
 

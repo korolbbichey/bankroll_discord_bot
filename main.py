@@ -21,7 +21,7 @@ from bot.database import (
 )
 from bot import changelog
 from bot.utils import display_name, avatar_hash, InvalidBet
-from bot.commands import economy, admin, general, work
+from bot.commands import economy, admin, general, work, feedback
 from bot.games import slots, blackjack, coinflip, duel, roulette
 
 # Setup logging
@@ -67,6 +67,7 @@ class BankRollBot(commands.Bot):
         admin.setup(self)
         general.setup(self)
         work.setup(self)
+        feedback.setup(self)
 
         slots.setup(self)
         blackjack.setup(self)
