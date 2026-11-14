@@ -114,6 +114,10 @@ def init_db():
             cursor.execute("ALTER TABLE player_days ADD COLUMN xp INTEGER DEFAULT 0")
         if "level_coins" not in day_columns:  # level-up rewards paid that day, for the daily limit
             cursor.execute("ALTER TABLE player_days ADD COLUMN level_coins INTEGER DEFAULT 0")
+        if "wagered" not in day_columns:  # coins bet that day (the turnover), and what the players won or lost
+            cursor.execute("ALTER TABLE player_days ADD COLUMN wagered INTEGER DEFAULT 0")
+        if "net" not in day_columns:
+            cursor.execute("ALTER TABLE player_days ADD COLUMN net INTEGER DEFAULT 0")
         cursor.execute('''CREATE TABLE IF NOT EXISTS coin_events (
             at TEXT NOT NULL,
             user_id INTEGER NOT NULL,
@@ -709,9 +713,10 @@ def get_user_profile(user_id) -> dict:
 
 # ============== Progression Operations ==============
 
-def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, today: str) -> tuple[int, int]:
+def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, today: str,
+                       bet: int = 0) -> tuple[int, int]:
     """
-    Add a finished game to the player's per-game stats and XP.
+    Add a finished game to the player's per-game stats, XP and the day's turnover.
     Returns (xp_before, xp_after).
     """
     with get_connection() as conn:
@@ -729,9 +734,10 @@ def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, to
                 net = net + excluded.net
         """, (user_id, game, int(won), net))
         cursor.execute("""
-            INSERT INTO player_days (day, user_id, games, xp) VALUES (?, ?, 1, ?)
-            ON CONFLICT(day, user_id) DO UPDATE SET games = games + 1, xp = COALESCE(xp, 0) + excluded.xp
-        """, (today, user_id, xp_gain))
+            INSERT INTO player_days (day, user_id, games, xp, wagered, net) VALUES (?, ?, 1, ?, ?, ?)
+            ON CONFLICT(day, user_id) DO UPDATE SET games = games + 1, xp = COALESCE(xp, 0) + excluded.xp,
+                wagered = COALESCE(wagered, 0) + excluded.wagered, net = COALESCE(net, 0) + excluded.net
+        """, (today, user_id, xp_gain, bet, net))
     if game != "duel" and net >= COIN_EVENT_MIN:  # duels log themselves, with the opponent
         record_coin_event(user_id, game, net)
     return xp_before, xp_before + xp_gain
@@ -881,6 +887,8 @@ def get_bot_stats(now: datetime | None = None, days: int = 7) -> dict:
                 "active": one("SELECT COUNT(*) FROM player_days WHERE day = ?", day),
                 "games": one("SELECT COALESCE(SUM(games), 0) FROM player_days WHERE day = ?", day),
                 "new": one("SELECT COUNT(*) FROM players WHERE first_played = ? AND NOT veteran", day),
+                "wagered": one("SELECT COALESCE(SUM(wagered), 0) FROM player_days WHERE day = ?", day),
+                "net": one("SELECT COALESCE(SUM(net), 0) FROM player_days WHERE day = ?", day),
             })
 
         # Of the new players whose first game was at least a day ago (within the period), how many played on a later day?
@@ -909,6 +917,14 @@ def get_bot_stats(now: datetime | None = None, days: int = 7) -> dict:
             "games": cursor.execute(
                 "SELECT game, SUM(games), COUNT(*), SUM(net) FROM game_stats GROUP BY game ORDER BY SUM(games) DESC"
             ).fetchall(),
+            "top_xp": cursor.execute("""
+                SELECT p.user_id, c.username, p.xp FROM players p LEFT JOIN currency c ON c.user_id = p.user_id
+                WHERE p.xp > 0 ORDER BY p.xp DESC LIMIT 3
+            """).fetchall(),
+            "top_shifts": cursor.execute("""
+                SELECT user_id, username, work_shifts FROM currency
+                WHERE work_shifts > 0 ORDER BY work_shifts DESC LIMIT 3
+            """).fetchall(),
             "events": cursor.execute("""
                 SELECT e.at, e.user_id, c.username, e.kind, e.amount, e.detail
                 FROM coin_events e LEFT JOIN currency c ON c.user_id = e.user_id

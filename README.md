@@ -48,7 +48,7 @@ Balances are shared across every server, so admin commands are restricted to the
 - `/admin set <user> <amount>` - set an exact balance
 - `/admin feedback` - the 10 latest messages sent with `/feedback`
 - `/admin badge <user> <badge>` - give a badge the player earned but didn't get, with its coin reward (never twice)
-- `/admin stats` - players, retention, popular games and the biggest coin movements. Players who played before per-game stats were added (Oct 30, 2026) count as old players, never as new ones
+- `/admin stats` - players, retention, daily turnover (coins bet) and the house result, the highest levels and /work ranks, popular games and the biggest coin movements. Players who played before per-game stats were added (Oct 30, 2026) count as old players, never as new ones
 
 ## Project Structure
 

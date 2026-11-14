@@ -398,8 +398,30 @@ def test_admin_stats_command(db, monkeypatch):
         return sent_embed(interaction.response.send_message), interaction.response.send_message.call_args.kwargs
     embed, kwargs = asyncio.run(go())
     assert kwargs["ephemeral"] is True
-    assert [f.name for f in embed.fields] == ["👥 Players", "📅 Last 7 days (UTC)", "🎮 Games, all time", "💰 Biggest coin movements"]
-    assert "slots" in embed.fields[2].value and "+1,000" in embed.fields[3].value
+    assert [f.name for f in embed.fields] == ["👥 Players", "📅 Last 7 days (UTC)", "🏆 Highest levels",
+                                              "💼 Highest /work ranks", "🎮 Games, all time", "💰 Biggest coin movements"]
+    assert "bets **10**" in embed.fields[1].value and "house -1,000" in embed.fields[1].value
+    assert "Lv **1**" in embed.fields[2].value and embed.fields[3].value == "Nobody yet"
+    assert "slots" in embed.fields[4].value and "+1,000" in embed.fields[5].value
+
+
+def test_turnover_and_top_players(db):
+    progression.record_game(1, "slots", 100, 0)
+    progression.record_game(2, "roulette", 50, 100)
+    progression.record_game(2, "blackjack", 40, 40)
+    today = db.get_bot_stats()["days"][0]
+    assert (today["wagered"], today["net"]) == (190, -50)
+
+    db.set_balance(1, 100)
+    db.set_balance(2, 100)
+    db.save_username(2, "Bob")
+    with db.get_connection() as conn:
+        conn.execute("UPDATE players SET xp = 5000 WHERE user_id = 2")
+        conn.execute("UPDATE currency SET work_shifts = 130 WHERE user_id = 2")
+        conn.execute("UPDATE currency SET work_shifts = 12 WHERE user_id = 1")
+    stats = db.get_bot_stats()
+    assert [(user_id, xp) for user_id, _, xp in stats["top_xp"]][0] == (2, 5000)
+    assert stats["top_shifts"] == [(2, "Bob", 130), (1, None, 12)]
 
 
 @pytest.mark.rewards

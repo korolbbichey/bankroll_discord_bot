@@ -14,7 +14,8 @@ from discord import app_commands
 from ..config import OWNER_IDS, ADMIN_GUILD_ID
 from ..database import credit, try_debit, get_balance, get_bot_stats, get_feedback, set_balance
 from .feedback import KINDS
-from ..progression import BADGES, BADGES_BY_ID, record_badges
+from .work import rank_for
+from ..progression import BADGES, BADGES_BY_ID, level_for_xp, record_badges
 from ..utils import fmt
 
 logger = logging.getLogger(__name__)
@@ -99,8 +100,19 @@ def setup(client):
 
         embed.add_field(name="📅 Last 7 days (UTC)", value="\n".join(
             f"`{d['day'][5:]}` new **{d['new']}** · active **{d['active']}** · games **{fmt(d['games'])}**"
+            f" · bets **{fmt(d['wagered'])}** · house {-d['net']:+,}"
             for d in data["days"]
         ), inline=False)
+
+        top_levels = "\n".join(
+            f"Lv **{level_for_xp(xp)}** — {name or user_id} ({fmt(xp)} XP)" for user_id, name, xp in data["top_xp"]
+        ) or "Nobody yet"
+        top_work = "\n".join(
+            f"**{rank_for(shifts)[0]}** — {name or user_id} ({fmt(shifts)} shifts)"
+            for user_id, name, shifts in data["top_shifts"]
+        ) or "Nobody yet"
+        embed.add_field(name="🏆 Highest levels", value=top_levels, inline=True)
+        embed.add_field(name="💼 Highest /work ranks", value=top_work, inline=True)
 
         embed.add_field(name="🎮 Games, all time", value="\n".join(
             f"{game}: **{fmt(total)}** games · {fmt(players)} players · players' net {net:+,}"
@@ -111,7 +123,8 @@ def setup(client):
             f"`{at[5:]}` {name or user_id} — {kind} **+{fmt(amount)}**" + (f" ({detail})" if detail else "")
             for at, user_id, name, kind, amount, detail in data["events"]
         ) or "None logged yet", inline=False)
-        embed.set_footer(text="Activity and coin movements are recorded from this update onward.")
+        embed.set_footer(text="Bets = coins wagered (turnover), house = what the bot won from players that day. "
+                              "Bets are counted from Nov 14 onward.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @admin.command(name="feedback", description="The latest ideas and bug reports from /feedback")

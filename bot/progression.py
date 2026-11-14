@@ -200,7 +200,7 @@ def record_game(user_id, game: str, bet: int, payout: int, *, winning_combos: li
     today = _today()
     won = payout > bet
     xp_before, xp_after = record_game_result(user_id, game, won, payout - bet,
-                                             XP_PER_GAME + (XP_PER_WIN if won else 0), today)
+                                             XP_PER_GAME + (XP_PER_WIN if won else 0), today, bet=bet)
 
     stats = get_game_stats(user_id)
     candidates = []
