@@ -126,6 +126,13 @@ def init_db():
             detail TEXT
         )''')
         # Ideas and bug reports sent with /feedback, kept even if the DM to the owner fails
+        # /vote: the top.gg vote each player was last paid for (its time), so one vote pays once
+        cursor.execute('''CREATE TABLE IF NOT EXISTS vote_rewards (
+            user_id INTEGER PRIMARY KEY,
+            vote_at TEXT NOT NULL,
+            votes INTEGER DEFAULT 0,
+            coins INTEGER DEFAULT 0
+        )''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS feedback (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             at TEXT NOT NULL,
@@ -589,6 +596,26 @@ def save_feedback(user_id, user_name: str, kind: str, place: str, message: str, 
         cursor.execute("INSERT INTO feedback (at, user_id, user_name, kind, place, message) VALUES (?, ?, ?, ?, ?, ?)",
                        (now.isoformat(timespec="seconds"), user_id, user_name, kind, place, message))
         return cursor.lastrowid
+
+
+def claim_vote_reward(user_id, vote_at: str, coins: int) -> int | None:
+    """
+    Pay for the top.gg vote made at `vote_at`, once. Returns the new balance, or None if that vote was already paid.
+    The check and the payment are one transaction, so two /vote at once can't both pay.
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO vote_rewards (user_id, vote_at, votes, coins) VALUES (?, ?, 1, ?)
+            ON CONFLICT(user_id) DO UPDATE SET vote_at = excluded.vote_at, votes = votes + 1,
+                coins = coins + excluded.coins
+            WHERE vote_at != excluded.vote_at
+        """, (user_id, vote_at, coins))
+        if cursor.rowcount != 1:
+            return None
+        _ensure_account(cursor, user_id)
+        cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (coins, user_id))
+        return cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,)).fetchone()[0]
 
 
 def get_feedback(limit: int) -> list[tuple]:

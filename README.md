@@ -36,6 +36,7 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 Level-ups and new badges are announced to the player privately right after the game. Rules live in `bot/progression.py`.
 
 - **Updates** (`/updates`) - The latest changes
+- **Vote** (`/vote`) - After voting for the bot on top.gg (every 12 hours), `/vote` pays 500 coins, 1,000 for a weekend vote (top.gg counts those double). The bot asks the top.gg API (v1) for the player's latest vote and pays each vote once; no webhook or public address is needed. Set `TOPGG_TOKEN` to the bot's top.gg API token; without it `/vote` only shows the voting link
 - **Feedback** (`/feedback <kind> <message>`) - Send an idea, a bug report or anything else to the developer. It's saved, then DMed to the bot owner(s); one message every 5 minutes per player, up to 1,000 characters. For the DM to arrive, the owner needs a server in common with the bot and DMs from its members allowed; if a DM fails, `/admin feedback` still shows it
 
 ### Telling players what changed

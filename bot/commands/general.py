@@ -6,7 +6,8 @@ from datetime import datetime
 
 import discord
 
-from ..config import AUTOPLAY_MAX_SPINS, BAILOUT_AMOUNT, SLOT_PAYOUTS, DAILY_STREAK_REWARDS, MIN_BET, MAX_BET
+from ..config import AUTOPLAY_MAX_SPINS, BAILOUT_AMOUNT, SLOT_PAYOUTS, DAILY_STREAK_REWARDS, MIN_BET, MAX_BET, \
+    VOTE_REWARD
 from ..utils import fmt
 from ..changelog import CHANGELOG, UPDATES_SHOWN
 
@@ -42,6 +43,7 @@ def build_help_embed() -> discord.Embed:
         "`/balance [user]` — check a balance\n"
         f"`/daily_reward` — 💰 {fmt(DAILY_STREAK_REWARDS[0])}–{fmt(DAILY_STREAK_REWARDS[-1])} daily, grows with a 🔥 streak\n"
         "`/work` — a quick casino job for coins, once an hour\n"
+        f"`/vote` — vote for the bot on top.gg for 💰 {fmt(VOTE_REWARD)}, every 12 hours\n"
         f"`/bailout` — out of coins? Get 💰 {fmt(BAILOUT_AMOUNT)}, once a day\n"
         "`/pay <user> <amount>` — send coins to a friend\n"
         "`/leaderboard` — richest players and your position\n"

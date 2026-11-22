@@ -87,6 +87,9 @@ WORK_ANSWER_SECONDS = 20
 WORK_RANKS = [(0, "Trainee", 1.0), (10, "Dealer", 1.2), (30, "Pit Boss", 1.4), (75, "Casino Manager", 1.7),
               (120, "Casino Director", 2.0), (200, "Casino Owner", 2.3), (300, "Tycoon", 2.7)]
 
+# /vote: coins for a vote on top.gg (once every 12 hours). Top.gg counts weekend votes double, and so do we.
+VOTE_REWARD = 500
+
 # Bets over half the balance ask for a confirmation first, unless the player turned it off.
 CONFIRM_BET_SHARE = 0.5
 CONFIRM_BET_MIN_BALANCE = 100
