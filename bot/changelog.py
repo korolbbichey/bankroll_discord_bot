@@ -25,6 +25,10 @@ class Entry:
 
 # Newest first.
 CHANGELOG: list[Entry] = [
+    Entry("2026-11-22-vote", "2026-11-22", "Vote for coins", (
+        "🗳️ Bankroll is on top.gg! Vote for the bot, then use `/vote` again to get **500 coins**",
+        "⏰ You can vote every 12 hours, and weekend votes pay double",
+    )),
     Entry("2026-11-12-feedback", "2026-11-12", "Send feedback", (
         "📬 `/feedback`: send an idea or a bug report straight to the developer",
     )),
