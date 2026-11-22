@@ -62,7 +62,8 @@ def setup(client):
     @client.tree.command(name="vote", description=f"Vote for Bankroll on top.gg and get {VOTE_REWARD} coins")
     async def vote(interaction: discord.Interaction):
         token = os.getenv("TOPGG_TOKEN")
-        how = (f"Vote for Bankroll on top.gg, then use `/vote` again to get **{fmt(VOTE_REWARD)} coins**. "
+        how = ("1️⃣ Press the button below and vote on top.gg\n"
+               f"2️⃣ Come back and use `/vote` again: that's when **{fmt(VOTE_REWARD)} coins** go to your balance\n\n"
                "You can vote every 12 hours, and weekend votes pay double!")
         if not token:
             await interaction.response.send_message(embed=discord.Embed(
@@ -87,14 +88,14 @@ def setup(client):
         weight = max(1, int(found.get("weight") or 1))
         coins = VOTE_REWARD * weight
         balance = claim_vote_reward(interaction.user.id, found["created_at"], coins)
-        again = f"<t:{timestamp(found['expires_at'])}:R>"
+        again = f"Vote again <t:{timestamp(found['expires_at'])}:R>, then use `/vote` to get your coins."
         if balance is None:
             embed = discord.Embed(title="✅ You already got the reward for this vote",
-                                  description=f"You can vote again {again}.", color=discord.Color.light_grey())
+                                  description=again, color=discord.Color.light_grey())
             await interaction.followup.send(embed=embed, view=vote_button(client))
             return
         embed = discord.Embed(title=f"🗳️ Thanks for voting! +{fmt(coins)} coins",
                               description=("🎉 Weekend votes pay double!\n" if weight > 1 else "")
-                              + f"💰 Balance: **{fmt(balance)}**\nVote again {again}.",
+                              + f"💰 Balance: **{fmt(balance)}**\n{again}",
                               color=discord.Color.green())
         await interaction.followup.send(embed=embed)

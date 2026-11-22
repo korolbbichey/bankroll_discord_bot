@@ -64,7 +64,7 @@ def test_weekend_votes_pay_double(db, topgg):
 def test_no_vote_shows_the_link(db, topgg):
     topgg["vote"] = None
     interaction = use_vote()
-    assert "use `/vote` again" in sent(interaction)
+    assert "use `/vote` again" in sent(interaction) and "500 coins" in sent(interaction)
     assert interaction.followup.send.call_args.kwargs["view"] is not None
     assert db.get_balance(1) == 100
 
