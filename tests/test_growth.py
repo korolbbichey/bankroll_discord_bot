@@ -405,6 +405,31 @@ def test_admin_stats_command(db, monkeypatch):
     assert "slots" in embed.fields[4].value and "+1,000" in embed.fields[5].value
 
 
+def test_admin_player_command(db, monkeypatch):
+    monkeypatch.setattr(main.admin, "ADMIN_GUILD_ID", 123)
+    progression.record_game(7, "blackjack", 100, 200)
+    progression.record_game(7, "blackjack", 100, 0)
+    progression.record_game(7, "roulette", 50, 0)
+    db.update_blackjack_stats(7, 100, is_win=True, is_push=False)
+
+    async def go():
+        client = main.BankRollBot()
+        main.admin.setup(client)
+        group = client.tree.get_command("admin", guild=discord.Object(123))
+        interaction = make_interaction(42, done=False)
+        await group.get_command("player").callback(interaction, make_user(7))
+        return sent_embed(interaction.response.send_message), interaction.response.send_message.call_args.kwargs
+    embed, kwargs = asyncio.run(go())
+    assert kwargs["ephemeral"] is True
+    fields = {f.name: f.value for f in embed.fields}
+    games = fields["🎮 Games (since Oct 30)"]
+    assert "🃏 Blackjack: **2** games · 50% won · net **+0**" in games
+    assert "🎡 Roulette: **1** games · 0% won · net **-50**" in games
+    assert "1 wins" in fields["🃏 Blackjack, all time"]
+    today = fields["📅 Last 7 days (UTC)"]
+    assert "**3** games · bets **250** · net **-50** (🃏 +0, 🎡 -50)" in today
+
+
 def test_turnover_and_top_players(db):
     progression.record_game(1, "slots", 100, 0)
     progression.record_game(2, "roulette", 50, 100)

@@ -47,6 +47,7 @@ Balances are shared across every server, so admin commands are restricted to the
 - `/admin give <user> <amount>` - add coins to a player
 - `/admin take <user> <amount>` - remove coins from a player
 - `/admin set <user> <amount>` - set an exact balance
+- `/admin player <user>` - one player's results: games, win rate and net per game (since Oct 30), the old all-time blackjack stats, and the last 7 days with bets and net (bets per day from Nov 14, the split by game from Nov 24)
 - `/admin feedback` - the 10 latest messages sent with `/feedback`
 - `/admin badge <user> <badge>` - give a badge the player earned but didn't get, with its coin reward (never twice)
 - `/admin stats` - players, retention, daily turnover (coins bet) and the house result, the highest levels and /work ranks, popular games and the biggest coin movements. Players who played before per-game stats were added (Oct 30, 2026) count as old players, never as new ones

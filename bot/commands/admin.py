@@ -12,15 +12,18 @@ import discord
 from discord import app_commands
 
 from ..config import OWNER_IDS, ADMIN_GUILD_ID
-from ..database import credit, try_debit, get_balance, get_bot_stats, get_feedback, set_balance
+from ..database import (credit, try_debit, get_balance, get_bot_stats, get_feedback, get_player_report,
+                        set_balance)
 from .feedback import KINDS
 from .work import rank_for
 from ..progression import BADGES, BADGES_BY_ID, level_for_xp, record_badges
-from ..utils import fmt
+from ..utils import display_name, fmt
 
 logger = logging.getLogger(__name__)
 
 Amount = app_commands.Range[int, 1, 1_000_000_000]
+GAMES = {"slots": "🎰 Slots", "coinflip": "🪙 Coinflip", "blackjack": "🃏 Blackjack", "roulette": "🎡 Roulette",
+         "duel": "⚔️ Duels"}
 
 
 def setup(client):
@@ -125,6 +128,36 @@ def setup(client):
         ) or "None logged yet", inline=False)
         embed.set_footer(text="Bets = coins wagered (turnover), house = what the bot won from players that day. "
                               "Bets are counted from Nov 14 onward.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @admin.command(name="player", description="One player's results: every game, and the last 7 days")
+    @app_commands.describe(user="The player")
+    async def player(interaction: discord.Interaction, user: discord.User):
+        data = get_player_report(user.id)
+        title, _ = rank_for(data["shifts"])
+        embed = discord.Embed(title=f"🔎 {display_name(user)}", color=discord.Color.blurple(), description=(
+            f"💰 Balance **{fmt(data['balance'])}** · Lv **{level_for_xp(data['xp'])}** ({fmt(data['xp'])} XP)\n"
+            f"💼 {title} · {fmt(data['shifts'])} shifts"
+            + (f"\n📅 First game recorded on {data['first_played']}" if data["first_played"] else "")
+        ))
+        embed.add_field(name="🎮 Games (since Oct 30)", value="\n".join(
+            f"{GAMES.get(game, game)}: **{fmt(total)}** games · {wins / total * 100:.0f}% won · net **{net:+,}**"
+            for game, total, wins, net in data["games"] if total
+        ) or "No games yet", inline=False)
+        if data["blackjack"]:
+            wins, losses, won_total, best = data["blackjack"]
+            embed.add_field(name="🃏 Blackjack, all time", value=(
+                f"{fmt(wins)} wins · {fmt(losses)} losses (pushes not counted) · "
+                f"won **{fmt(won_total)}** in total · best **+{fmt(best)}**"
+            ), inline=False)
+        embed.add_field(name="📅 Last 7 days (UTC)", value="\n".join(
+            f"`{d['day'][5:]}` **{d['games']}** games · bets **{fmt(d['wagered'])}** · net **{d['net']:+,}**"
+            + (" (" + ", ".join(f"{GAMES.get(game, game).split()[0]} {net:+,}" for game, net in d["by_game"]) + ")"
+               if d["by_game"] else "")
+            for d in data["days"]
+        )[:1024] or "No games in the last 7 days", inline=False)
+        embed.set_footer(text="Net = coins won minus coins bet. Bets per day are known from Nov 14, "
+                              "the split by game from Nov 24.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @admin.command(name="feedback", description="The latest ideas and bug reports from /feedback")

@@ -126,6 +126,17 @@ def init_db():
             detail TEXT
         )''')
         # Ideas and bug reports sent with /feedback, kept even if the DM to the owner fails
+        # Each player's results per game per day (UTC), for /admin player. Kept from Nov 24, 2026 onward.
+        cursor.execute('''CREATE TABLE IF NOT EXISTS game_days (
+            day TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            game TEXT NOT NULL,
+            games INTEGER DEFAULT 0,
+            wins INTEGER DEFAULT 0,
+            wagered INTEGER DEFAULT 0,
+            net INTEGER DEFAULT 0,
+            PRIMARY KEY (day, user_id, game)
+        )''')
         # /vote: the top.gg vote each player was last paid for (its time), so one vote pays once
         cursor.execute('''CREATE TABLE IF NOT EXISTS vote_rewards (
             user_id INTEGER PRIMARY KEY,
@@ -765,6 +776,11 @@ def record_game_result(user_id, game: str, won: bool, net: int, xp_gain: int, to
             ON CONFLICT(day, user_id) DO UPDATE SET games = games + 1, xp = COALESCE(xp, 0) + excluded.xp,
                 wagered = COALESCE(wagered, 0) + excluded.wagered, net = COALESCE(net, 0) + excluded.net
         """, (today, user_id, xp_gain, bet, net))
+        cursor.execute("""
+            INSERT INTO game_days (day, user_id, game, games, wins, wagered, net) VALUES (?, ?, ?, 1, ?, ?, ?)
+            ON CONFLICT(day, user_id, game) DO UPDATE SET games = games + 1, wins = wins + excluded.wins,
+                wagered = wagered + excluded.wagered, net = net + excluded.net
+        """, (today, user_id, game, int(won), bet, net))
     if game != "duel" and net >= COIN_EVENT_MIN:  # duels log themselves, with the opponent
         record_coin_event(user_id, game, net)
     return xp_before, xp_before + xp_gain
@@ -897,6 +913,37 @@ def refund_pending_duels() -> int:
             cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (bet, challenger_id))
         cursor.execute("DELETE FROM pending_duels")
         return len(rows)
+
+
+def get_player_report(user_id, now: datetime | None = None, days: int = 7) -> dict:
+    """One player's results for /admin player: per game (since Oct 30), old blackjack stats and the last days."""
+    now = now or datetime.now(timezone.utc)
+    day_names = [(now - timedelta(days=offset)).strftime("%Y-%m-%d") for offset in range(days)]
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        account = cursor.execute("SELECT balance, COALESCE(work_shifts, 0) FROM currency WHERE user_id = ?",
+                                 (user_id,)).fetchone()
+        player = cursor.execute("SELECT xp, first_played FROM players WHERE user_id = ?", (user_id,)).fetchone()
+        per_day = []
+        for day in day_names:
+            row = cursor.execute("SELECT games, COALESCE(wagered, 0), COALESCE(net, 0) FROM player_days "
+                                 "WHERE day = ? AND user_id = ? AND games > 0", (day, user_id)).fetchone()
+            if row:
+                by_game = cursor.execute("SELECT game, net FROM game_days WHERE day = ? AND user_id = ? "
+                                         "ORDER BY games DESC", (day, user_id)).fetchall()
+                per_day.append({"day": day, "games": row[0], "wagered": row[1], "net": row[2], "by_game": by_game})
+        return {
+            "balance": account[0] if account else STARTING_BALANCE,
+            "shifts": account[1] if account else 0,
+            "xp": player[0] if player else 0,
+            "first_played": player[1] if player else None,
+            "games": cursor.execute("SELECT game, games, wins, net FROM game_stats WHERE user_id = ? "
+                                    "ORDER BY games DESC", (user_id,)).fetchall(),
+            "blackjack": cursor.execute("SELECT blackjack_wins, blackjack_losses, blackjack_total_earned, "
+                                        "blackjack_largest_win FROM blackjack_stats WHERE user_id = ?",
+                                        (user_id,)).fetchone(),
+            "days": per_day,
+        }
 
 
 def get_bot_stats(now: datetime | None = None, days: int = 7) -> dict:
