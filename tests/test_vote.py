@@ -1,4 +1,6 @@
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -80,6 +82,42 @@ def test_without_a_token_only_the_link(db, monkeypatch):
     interaction = use_vote()
     assert interaction.response.send_message.call_args.kwargs["view"] is not None
     assert db.get_balance(1) == 100
+
+
+class Posted(Exception):
+    """Stops the endless posting loop in tests."""
+
+
+def run_poster(monkeypatch, statuses, guild_counts):
+    """Run keep_server_count_posted for len(guild_counts) rounds; returns the counts sent to top.gg."""
+    monkeypatch.setenv("TOPGG_TOKEN", "test-token")
+    sent_counts, statuses = [], list(statuses)
+    rounds = iter(guild_counts[1:])
+    client = SimpleNamespace(guilds=[], wait_until_ready=AsyncMock())
+
+    async def post(count, token):
+        sent_counts.append(count)
+        return statuses.pop(0)
+
+    async def sleep(seconds):
+        try:
+            client.guilds = [object()] * next(rounds)
+        except StopIteration:
+            raise Posted
+    monkeypatch.setattr(vote, "post_server_count", post)
+    monkeypatch.setattr(vote.asyncio, "sleep", sleep)
+    client.guilds = [object()] * guild_counts[0]
+    with pytest.raises(Posted):
+        asyncio.run(vote.keep_server_count_posted(client))
+    return sent_counts
+
+
+def test_server_count_is_posted_when_it_changes(monkeypatch):
+    assert run_poster(monkeypatch, [204, 204], [5, 5, 6, 6]) == [5, 6]
+
+
+def test_server_count_is_retried_after_a_refusal(monkeypatch):
+    assert run_poster(monkeypatch, [403, 204], [5, 5, 5]) == [5, 5]
 
 
 def test_claim_is_per_player(db):

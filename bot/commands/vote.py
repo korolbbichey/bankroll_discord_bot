@@ -3,9 +3,11 @@
 
 A player votes on the site (once every 12 hours), then uses /vote: the bot asks top.gg for their latest vote
 and pays for it once. No webhook, so no public address is needed. TOPGG_TOKEN is the bot's token from
-top.gg (bot settings → Webhooks / API); without it /vote only shows the link.
+top.gg (bot settings → Integrations & API); without it /vote only shows the link.
+The bot also keeps its server count up to date on top.gg, which needs the token's Write permission.
 """
 
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -20,7 +22,9 @@ from ..utils import fmt
 logger = logging.getLogger(__name__)
 
 API = "https://top.gg/api/v1/projects/@me/votes/{user_id}?source=discord"
+METRICS_API = "https://top.gg/api/v1/projects/@me/metrics"
 TIMEOUT = aiohttp.ClientTimeout(total=10)
+POST_EVERY = 30 * 60  # seconds between server count updates on top.gg
 
 
 class TopggError(Exception):
@@ -39,6 +43,39 @@ async def latest_vote(user_id: int, token: str) -> dict | None:
                 return await reply.json()
     except (aiohttp.ClientError, TimeoutError, ValueError) as error:
         raise TopggError(str(error)) from error
+
+
+async def post_server_count(count: int, token: str) -> int:
+    """Tell top.gg how many servers the bot is in. Returns the HTTP status (204 = done)."""
+    async with aiohttp.ClientSession(timeout=TIMEOUT) as session:
+        async with session.patch(METRICS_API, json={"server_count": count},
+                                 headers={"Authorization": f"Bearer {token}"}) as reply:
+            return reply.status
+
+
+async def keep_server_count_posted(client):
+    """Background task: post the server count on top.gg after startup and then whenever it changes."""
+    await client.wait_until_ready()
+    posted = None
+    while True:
+        token = os.getenv("TOPGG_TOKEN")
+        count = len(client.guilds)
+        if token and count != posted:
+            try:
+                status = await post_server_count(count, token)
+                if status < 300:
+                    posted = count
+                    logger.info("Posted the server count to top.gg: %d", count)
+                elif status in (401, 403):
+                    logger.warning("Top.gg refused the server count (status %d): the token needs the Write "
+                                   "permission", status)
+                else:
+                    logger.warning("Top.gg refused the server count (status %d)", status)
+            except (aiohttp.ClientError, TimeoutError) as error:
+                logger.warning("Couldn't post the server count to top.gg: %s", error)
+            except Exception:  # never let the task die: it would stop posting until the next restart
+                logger.exception("Failed to post the server count to top.gg")
+        await asyncio.sleep(POST_EVERY)
 
 
 def vote_url(client) -> str:

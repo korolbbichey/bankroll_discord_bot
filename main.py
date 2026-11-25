@@ -4,6 +4,7 @@ BankRoll Discord Bot - Main Entry Point
 A fun entertainment Discord bot featuring casino-style games with virtual currency.
 """
 
+import asyncio
 import os
 import logging
 from datetime import datetime, timezone
@@ -77,6 +78,8 @@ class BankRollBot(commands.Bot):
         duel.setup(self)
 
         self.tree.on_error = self.on_app_command_error
+        # Kept in an attribute: asyncio only holds a weak reference to running tasks.
+        self.topgg_task = asyncio.create_task(vote.keep_server_count_posted(self))
 
         synced = await self.tree.sync()
         logger.info("Synced %d command(s) globally.", len(synced))
