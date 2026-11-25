@@ -46,6 +46,7 @@ def build_help_embed() -> discord.Embed:
         f"`/vote` — vote for the bot on top.gg for 💰 {fmt(VOTE_REWARD)}, every 12 hours\n"
         f"`/bailout` — out of coins? Get 💰 {fmt(BAILOUT_AMOUNT)}, once a day\n"
         "`/pay <user> <amount>` — send coins to a friend\n"
+        "`/paystats [user]` — who sent coins to whom, and who owes whom\n"
         "`/leaderboard` — richest players and your position\n"
         "`/profile [user]` — player card: level, title and stats\n"
         "`/badges [user]` — every badge, how to earn it and the coins it pays\n"

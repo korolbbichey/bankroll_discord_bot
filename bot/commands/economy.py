@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 
 from ..config import (
-    BADGE_RARITY, BAILOUT_AMOUNT, MAX_TRANSFER, MIN_BET, QUICK_PLAY_BET, STARTING_BALANCE, badge_coins,
+    BADGE_RARITY, BAILOUT_AMOUNT, COIN_EVENT_MIN, MAX_TRANSFER, MIN_BET, QUICK_PLAY_BET, STARTING_BALANCE, badge_coins,
 )
 from ..games.blackjack import start_blackjack
 from ..games.coinflip import start_coinflip
@@ -20,6 +20,7 @@ from ..games.slots import start_slots
 from ..database import (
     get_balance, get_leaderboard, get_rank, get_player_count, claim_daily_reward, get_daily_streak,
     claim_bailout, get_leaderboard_row, get_user_profile, record_coin_event, transfer, save_username, get_player_progress, get_game_stats, get_badges,
+    get_pay_stats,
 )
 from ..leaderboard_card import LeaderboardEntry, render_leaderboard_card
 from ..profile_card import CardData, render_profile_card
@@ -59,6 +60,41 @@ def safe_badges(user_id, badge_ids: list[str], check_wealth: bool = False):
 def win_rate(wins: int, losses: int) -> str:
     decided = wins + losses
     return f"{wins / decided * 100:.0f}%" if decided else "—"
+
+
+PAY_STATS_SHOWN = 5
+
+
+def pay_stats_embed(target: discord.abc.User, viewer: discord.abc.User) -> discord.Embed:
+    """/paystats: coins the player got and sent with /pay, and the balance with each other player."""
+    data = get_pay_stats(target.id)
+    yours = target.id == viewer.id
+    name = display_name(target)
+    owner = "Your" if yours else f"{name}'s"
+    embed = discord.Embed(title=f"💸 {owner} transfers", color=discord.Color.gold())
+    embed.set_footer(text=f"Transfers of {fmt(COIN_EVENT_MIN)}+ count from Nov 1, smaller ones from Nov 25, 2026.")
+    if not data["got"] and not data["sent"]:
+        embed.description = ("You haven't" if yours else f"{name} hasn't") + " sent or got any coins with `/pay` yet."
+        return embed
+
+    names = {other: other_name or f"<@{other}>" for other, other_name, _, _ in data["got"] + data["sent"]}
+    got = {other: coins for other, _, coins, _ in data["got"]}
+    sent = {other: coins for other, _, coins, _ in data["sent"]}
+    embed.description = f"📥 Got **{fmt(sum(got.values()))}** · 📤 Sent **{fmt(sum(sent.values()))}**"
+
+    def lines(rows):
+        return "\n".join(f"{names[other]} **{fmt(coins)}** ({transfers}×)"
+                         for other, _, coins, transfers in rows[:PAY_STATS_SHOWN]) or "Nobody yet"
+    embed.add_field(name="📥 Got from", value=lines(data["got"]), inline=True)
+    embed.add_field(name="📤 Sent to", value=lines(data["sent"]), inline=True)
+
+    who = "You" if yours else name
+    balances = sorted(((got.get(other, 0) - sent.get(other, 0), other) for other in names), key=lambda b: -abs(b[0]))
+    owes = [f"{who} owe{'' if yours else 's'} {names[other]} **{fmt(diff)}**" if diff > 0
+            else f"{names[other]} owes {'you' if yours else name} **{fmt(-diff)}**"
+            for diff, other in balances[:PAY_STATS_SHOWN] if diff]
+    embed.add_field(name="⚖️ Who owes whom", value="\n".join(owes) or "All even", inline=False)
+    return embed
 
 
 class QuickPlayView(discord.ui.View):
@@ -124,6 +160,12 @@ def setup(client):
             f"{display_name(user)}'s balance: 💰 {fmt(get_balance(user.id))}"
         )
         await send_notice(interaction, safe_badges(interaction.user.id, ["generous"]))
+
+    @client.tree.command(name="paystats", description="Who sent coins to whom with /pay, and who owes whom")
+    @app_commands.describe(user="The player to check (leave empty for yourself)")
+    async def paystats(interaction: discord.Interaction, user: discord.User = None):
+        target = user or interaction.user
+        await interaction.response.send_message(embed=pay_stats_embed(target, interaction.user))
 
     @client.tree.command(name="bailout", description=f"Out of coins? Get {BAILOUT_AMOUNT} coins, once a day")
     async def bailout(interaction: discord.Interaction):

@@ -25,6 +25,10 @@ class Entry:
 
 # Newest first.
 CHANGELOG: list[Entry] = [
+    Entry("2026-11-25-paystats", "2026-11-25", "Who owes whom", (
+        "💸 `/paystats [user]`: who sent coins to whom with `/pay`, and who owes whom",
+        "📜 Transfers of 1,000+ count from Nov 1, smaller ones from today",
+    )),
     Entry("2026-11-22-vote", "2026-11-22", "Vote for coins", (
         "🗳️ Bankroll is on top.gg! Vote for the bot, then use `/vote` again to get **500 coins**",
         "⏰ You can vote every 12 hours, and weekend votes pay double",

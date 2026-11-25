@@ -17,6 +17,7 @@ A fun entertainment Discord bot featuring casino-style games with virtual curren
 - **Balance** (`/balance [@user]`) - Check your own or another player's coins
 - **Daily Reward** (`/daily_reward`) - Claim coins every day; consecutive days build a 🔥 streak (50 → 55 → 60 → 70 → 80 → 90 → 100 coins, configurable via `DAILY_STREAK_REWARDS`). Missing a day resets the streak
 - **Pay** (`/pay <@user> <amount>`) - Send coins to another player
+- **Pay stats** (`/paystats [@user]`) - Who a player got coins from and sent coins to with `/pay` (top 5 each, with totals), and the balance with each other player ("who owes whom"). Every transfer counts from Nov 25, 2026; older ones only from 1,000 coins up (copied once from the owner's coin log, kept since Nov 1)
 - **Duel** (`/duel <@user> <bet>`) - Challenge a player to a coin flip; the winner takes both bets. Bets of duels left unanswered by a restart are refunded at startup
 - **Bailout** (`/bailout`) - 25 coins for an empty wallet, once per UTC day
 - **Work** (`/work`) - A quick casino job once an hour: a random task (bartender, cashier, security, slot mechanic, dealer) answered with buttons. A right answer pays 20-35 coins times the player's job rank multiplier: Trainee ×1, Dealer ×1.2 (10 shifts), Pit Boss ×1.4 (30), Casino Manager ×1.7 (75), Casino Director ×2 (120), Casino Owner ×2.3 (200), Tycoon ×2.7 (300, also the Tycoon badge). The result shows the rank's share of the pay. A wrong or late answer pays 8

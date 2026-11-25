@@ -125,7 +125,6 @@ def init_db():
             amount INTEGER NOT NULL,
             detail TEXT
         )''')
-        # Ideas and bug reports sent with /feedback, kept even if the DM to the owner fails
         # Each player's results per game per day (UTC), for /admin player. Kept from Nov 24, 2026 onward.
         cursor.execute('''CREATE TABLE IF NOT EXISTS game_days (
             day TEXT NOT NULL,
@@ -144,6 +143,7 @@ def init_db():
             votes INTEGER DEFAULT 0,
             coins INTEGER DEFAULT 0
         )''')
+        # Ideas and bug reports sent with /feedback, kept even if the DM to the owner fails
         cursor.execute('''CREATE TABLE IF NOT EXISTS feedback (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             at TEXT NOT NULL,
@@ -295,6 +295,34 @@ def init_db():
                     cursor.execute("INSERT INTO coin_events (at, user_id, kind, amount, detail) VALUES (?, ?, ?, ?, ?)",
                                    (at, user_id, "badges", coins, "badge rewards raised"))
 
+        # Coins sent with /pay, per sender and receiver, for /paystats. Every transfer counts from Nov 25, 2026;
+        # older ones are only known from COIN_EVENT_MIN up (coin_events), and are copied in once.
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pay_totals'")
+        pay_totals_is_new = cursor.fetchone() is None
+        cursor.execute('''CREATE TABLE IF NOT EXISTS pay_totals (
+            from_id INTEGER NOT NULL,
+            to_id INTEGER NOT NULL,
+            coins INTEGER DEFAULT 0,
+            transfers INTEGER DEFAULT 0,
+            PRIMARY KEY (from_id, to_id)
+        )''')
+        if pay_totals_is_new:
+            for to_id, detail, amount in cursor.execute(
+                    "SELECT user_id, detail, amount FROM coin_events WHERE kind = 'pay' AND detail LIKE 'from %'"
+            ).fetchall():
+                try:
+                    from_id = int(detail.split()[1])
+                except (IndexError, ValueError):
+                    continue
+                _add_pay(cursor, from_id, to_id, amount)
+
+
+def _add_pay(cursor, from_id, to_id, amount: int):
+    cursor.execute("""
+        INSERT INTO pay_totals (from_id, to_id, coins, transfers) VALUES (?, ?, ?, 1)
+        ON CONFLICT(from_id, to_id) DO UPDATE SET coins = coins + excluded.coins, transfers = transfers + 1
+    """, (from_id, to_id, amount))
+
 
 OLD_DAILY_XP_LIMIT = 1500
 
@@ -365,7 +393,25 @@ def transfer(from_id, to_id, amount: int) -> bool:
         if cursor.rowcount != 1:
             return False
         cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (amount, to_id))
+        _add_pay(cursor, from_id, to_id, amount)
         return True
+
+
+def get_pay_stats(user_id) -> dict:
+    """
+    /paystats: who the player got coins from and sent coins to, each as [(other_id, name, coins, transfers)],
+    biggest first.
+    """
+    with get_connection() as conn:
+        got = conn.execute("""
+            SELECT p.from_id, c.username, p.coins, p.transfers FROM pay_totals p
+            LEFT JOIN currency c ON c.user_id = p.from_id WHERE p.to_id = ? ORDER BY p.coins DESC
+        """, (user_id,)).fetchall()
+        sent = conn.execute("""
+            SELECT p.to_id, c.username, p.coins, p.transfers FROM pay_totals p
+            LEFT JOIN currency c ON c.user_id = p.to_id WHERE p.from_id = ? ORDER BY p.coins DESC
+        """, (user_id,)).fetchall()
+    return {"got": got, "sent": sent}
 
 
 def set_balance(user_id, amount: int):
