@@ -216,14 +216,16 @@ The bot uses SQLite with these tables:
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Pull requests are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the tests, what a pull request needs, and the terms for contributions.
 
 ## License
 
-This project is open source and available under the MIT License.
+The source code is available under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). In short:
+
+- ✅ You can read and study the code, fork it, change it, send pull requests, and run your own copy for personal, hobby or other noncommercial use.
+- ❌ You can't use it to make money: no selling the bot or its code, and no paid features, premium tiers, donations for coins or ads in a copy of it.
+- Keep the license and its `Required Notice:` line with any copy you share.
+
+The name **Bankroll**, its avatar and its listings (such as on top.gg) aren't part of the license: a copy must use its own name and must not present itself as this bot. Versions published before Nov 26, 2026 were under the MIT License. For anything the license doesn't allow, ask the owner.
 
 > **Note:** This bot uses virtual currency only. No real money is involved, and users cannot lose actual funds. This is purely for entertainment purposes.
