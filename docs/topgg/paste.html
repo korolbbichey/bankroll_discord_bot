@@ -1,0 +1,61 @@
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+.br { --bg: #121120; --line: #2a283b; --text: #ecebf3; --muted: #9a97ad; --gold: #f2c230;
+  background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: 48px 40px; border-radius: 8px; text-align: left; }
+.br * { box-sizing: border-box; min-width: 0; }
+.br h1, .br h2, .br h3, .br p, .br dl, .br dd { margin: 0; padding: 0; }
+.br h1, .br h2, .br h3 { font-family: Montserrat, system-ui, sans-serif; color: var(--text); border: 0; }
+.br a { text-decoration: none; }
+.br img { display: block; max-width: 100%; height: auto; border-radius: 6px; }
+.br code { font: 500 0.92em "IBM Plex Mono", ui-monospace, Consolas, monospace; color: var(--gold);
+  background: none; padding: 0; }
+
+.br .top { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 40px; align-items: center; }
+.br h1 { font-size: 64px; line-height: 1; font-weight: 800; letter-spacing: -0.02em; }
+.br .lead { margin-top: 20px; font-size: 19px; max-width: 30em; }
+.br .actions { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 12px; }
+.br .button { display: inline-block; padding: 12px 18px; border-radius: 6px; font: 700 15px Montserrat, sans-serif; }
+.br .button.main { background: var(--gold); color: #17140a; }
+.br .button.plain { color: var(--text); border: 1px solid #4a475f; }
+.br .facts { margin-top: 28px; font: 14px "IBM Plex Mono", ui-monospace, Consolas, monospace; color: var(--muted); }
+
+.br h2 { margin-top: 72px; font-size: 30px; font-weight: 800; letter-spacing: -0.01em; }
+.br .note { margin-top: 8px; color: var(--muted); }
+
+.br .game { display: grid; grid-template-columns: 240px 1fr; gap: 36px; padding: 36px 0;
+  border-bottom: 1px solid var(--line); align-items: start; }
+.br .game:first-of-type { margin-top: 20px; border-top: 1px solid var(--line); }
+.br .game.wide { grid-template-columns: 1fr; }
+.br h3 { font-size: 22px; font-weight: 700; }
+.br h3 code { margin-left: 10px; font-size: 15px; font-weight: 400; }
+.br .game p { margin-top: 10px; max-width: 34em; }
+.br .pays { margin-top: 18px; max-width: 340px; font: 14px "IBM Plex Mono", ui-monospace, Consolas, monospace; }
+.br .pays div { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dotted #3a374e; }
+.br .pays dt { color: var(--muted); }
+.br .pays dd { color: var(--text); }
+.br .wide .text { display: grid; grid-template-columns: 1fr 340px; gap: 36px; }
+.br .wide .pays { margin-top: 4px; }
+.br .wide img { margin-top: 24px; }
+
+.br .extras { margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 48px;
+  border-top: 1px solid var(--line); }
+.br .extras div { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.br .extras dt { font: 700 16px Montserrat, sans-serif; }
+.br .extras dt code { margin-left: 8px; font-size: 14px; font-weight: 400; }
+.br .extras dd { margin-top: 4px; color: var(--muted); }
+
+.br .end { margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; }
+.br .end p + p { margin-top: 6px; }
+
+@media (max-width: 760px) {
+  .br { padding: 32px 20px; }
+  .br .top, .br .game, .br .wide .text, .br .extras { grid-template-columns: minmax(0, 1fr); }
+  .br .game { gap: 20px; }
+  .br .top img { max-width: 260px; }
+  .br .game img { max-width: 300px; }
+  .br h1 { font-size: 48px; }
+}
+</style>
+<div class="br"><div class="top"><div><h1>BANKROLL</h1><p class="lead">Slots, blackjack, roulette and coin flips, plus duels with friends and bets on real crypto prices. Every game is drawn and animated right in the chat.</p><div class="actions"><a class="button main" href="https://discord.com/oauth2/authorize?client_id=1354560364783735005">Add to server</a><a class="button plain" href="https://top.gg/bot/1354560364783735005/vote">Vote for 500 coins</a><a class="button plain" href="https://discord.gg/ZJd5apyVYf">Support server</a></div><p class="facts">100 coins to start · bets from 1 to 100,000 · virtual coins only</p></div><img src="https://raw.githubusercontent.com/korolbbichey/bankroll_discord_bot/main/docs/topgg/slots.gif" alt="A slots spin landing three stars"></div><h2>Games</h2><p class="note">Bet a number like <code>500</code> or <code>2.5k</code>, or type <code>all</code> or <code>half</code>.</p><div class="game"><img src="https://raw.githubusercontent.com/korolbbichey/bankroll_discord_bot/main/docs/topgg/slots_lines.gif" alt="A slots spin paying two cherry lines at once"><div><h3>Slots <code>/slots</code></h3><p>A 3×3 machine with 8 lines: three rows, three columns and both diagonals. Every winning line pays, so one spin can pay several times. Autoplay runs up to 50 spins with a stop-loss.</p><dl class="pays"><div><dt>3 lemons</dt><dd>1× per line</dd></div><div><dt>3 cherries</dt><dd>2×</dd></div><div><dt>3 watermelons</dt><dd>3×</dd></div><div><dt>3 bells</dt><dd>10×</dd></div><div><dt>3 stars</dt><dd>25×</dd></div><div><dt>3 diamonds</dt><dd>50×</dd></div></dl></div></div><div class="game"><img src="https://raw.githubusercontent.com/korolbbichey/bankroll_discord_bot/main/docs/topgg/blackjack.png" alt="Blackjack table with a natural 21"><div><h3>Blackjack <code>/blackjack</code></h3><p>Hit, stand or double down against the dealer at a drawn card table.</p><dl class="pays"><div><dt>Blackjack</dt><dd>3:2</dd></div><div><dt>Win</dt><dd>1:1</dd></div><div><dt>Tie</dt><dd>bet back</dd></div></dl></div></div><div class="game"><img src="https://raw.githubusercontent.com/korolbbichey/bankroll_discord_bot/main/docs/topgg/roulette.gif" alt="Roulette wheel landing on 32 red"><div><h3>Roulette <code>/roulette</code></h3><p>A European wheel with a single zero. Payouts are the real ones, so the zero is the only house edge.</p><dl class="pays"><div><dt>Red, black, odd, even</dt><dd>2×</dd></div><div><dt>1–18, 19–36</dt><dd>2×</dd></div><div><dt>A dozen</dt><dd>3×</dd></div><div><dt>One number, 0–36</dt><dd>36×</dd></div></dl></div></div><div class="game"><img src="https://raw.githubusercontent.com/korolbbichey/bankroll_discord_bot/main/docs/topgg/coinflip.gif" alt="A gold coin flipping"><div><h3>Coin flip <code>/coinflip</code></h3><p>Call heads or tails and watch the coin. Want to beat a friend instead of the house? <code>/duel @friend 500</code> puts both bets on one flip.</p><dl class="pays"><div><dt>Right call</dt><dd>2×</dd></div><div><dt>Duel winner</dt><dd>both bets</dd></div></dl></div></div><div class="game wide"><div class="text"><div><h3>Crypto <code>/crypto bet</code></h3><p>Will Bitcoin be higher or lower in 5 minutes? Bets follow live Binance prices for BTC, ETH, SOL, BNB, XRP, DOGE, LINK, AVAX and SUI. The chart updates every 30 seconds until the bet ends. <code>/crypto market</code> shows all nine coins.</p></div><dl class="pays"><div><dt>Bet length</dt><dd>1, 5 or 10 min</dd></div><div><dt>Right guess</dt><dd>1.9×</dd></div><div><dt>Price unchanged</dt><dd>bet back</dd></div><div><dt>Max bet</dt><dd>10,000</dd></div></dl></div><img src="https://raw.githubusercontent.com/korolbbichey/bankroll_discord_bot/main/docs/topgg/crypto.png" alt="A won 5-minute Bitcoin bet on a candle chart"></div><h2>Between games</h2><dl class="extras"><div><dt>Daily reward <code>/daily_reward</code></dt><dd>50 coins a day, growing to 100 over a 7-day streak.</dd></div><div><dt>Work <code>/work</code></dt><dd>A short job every hour. Promotions raise the pay up to 2.7× at the Tycoon rank, 300 shifts in.</dd></div><div><dt>Vote <code>/vote</code></dt><dd>500 coins for every vote on top.gg, 1,000 on weekends. You can vote every 12 hours.</dd></div><div><dt>Levels and badges</dt><dd>Every game gives XP. A level-up pays the new level × 25 coins (up to 1,000 a day), and 24 badges pay 50 to 10,000 coins each.</dd></div><div><dt>Profile <code>/profile</code></dt><dd>Your level, badges and best wins on one card. <code>/leaderboard</code> shows the top 10 on a podium.</dd></div><div><dt>Pay <code>/pay</code></dt><dd>Send coins to a friend. <code>/paystats</code> shows who owes whom.</dd></div></dl><div class="end"><p>Coins are virtual. They can't be bought, sold or cashed out.</p><p>Add Bankroll to your own profile to play in any server, in DMs and in group chats. Found a bug or have an idea? Send it with <code>/feedback</code> or bring it to the <a href="https://discord.gg/ZJd5apyVYf" style="color: var(--text); text-decoration: underline;">support server</a>.</p></div></div>
