@@ -95,13 +95,35 @@ def test_fetch_prices_and_history():
         [{"symbol": "BTCUSDT", "price": "61791.91"}, {"symbol": "SUIUSDT", "price": "0.6674"}])))
     assert prices == {"BTC": 61791.91, "SUI": 0.6674}
 
-    now_ms = time.time() * 1000
-    candles = [[0, "1", "1", "1", "100.5", "0", now_ms - 60_000], [0, "1", "1", "1", "101.5", "0", now_ms + 30_000]]
-    history = asyncio.run(crypto_feed.fetch_history(FakeSession(candles), "BTC"))
-    assert [price for _, price in history] == [100.5], "the running candle is left out"
-
     info = {"symbols": [{"symbol": "BTCUSDT", "status": "TRADING"}, {"symbol": "TONUSDT", "status": "BREAK"}]}
     assert asyncio.run(crypto_feed.fetch_trading(FakeSession(info))) == {"BTC"}
+
+
+class FakeCandles:
+    """Binance's candles: 1-minute ones for the last hour, 1-second ones for the last few seconds."""
+
+    def __init__(self):
+        now_ms = int(time.time() * 1000)
+        self.minutes = [[0, 0, 0, 0, "90.0", 0, now_ms - 50 * 60_000], [0, 0, 0, 0, "95.0", 0, now_ms - 10 * 60_000]]
+        self.seconds = [[0, 0, 0, 0, str(100 + i), 0, now_ms - (12 - i) * 1000] for i in range(12)]
+        self.seconds.append([0, 0, 0, 0, "200.0", 0, now_ms + 500])  # still running
+
+    def get(self, url, params=None):
+        return FakeReply(self.minutes if params["interval"] == "1m" else self.seconds)
+
+
+def test_history_is_detailed_where_the_charts_need_it():
+    history = asyncio.run(crypto_feed.fetch_history(FakeCandles(), "BTC"))
+    prices = [price for _, price in history]
+    # minute candles only from before the detailed part; seconds one every 5 s; the running candle left out
+    assert prices == [90.0, 100.0, 105.0, 110.0]
+
+
+def test_candles_from_prices():
+    from bot.crypto_card import _candles
+    points = [(0.0, 10.0), (5.0, 12.0), (10.0, 11.0), (15.0, 9.0), (20.0, 13.0)]
+    assert _candles(points, 0.0, 10) == [(5.0, 10.0, 12.0, 10.0, 12.0), (15.0, 12.0, 12.0, 9.0, 9.0),
+                                         (25.0, 9.0, 13.0, 9.0, 13.0)]
 
 
 # ---------- the database ----------
@@ -304,6 +326,8 @@ def test_market_card_draws():
 
 def test_price_text():
     assert price_text(61791.912) == "$61,791.91"
-    assert price_text(1.6) == "$1.6000"
+    assert price_text(72.06) == "$72.06"
+    assert price_text(9.385) == "$9.385"
+    assert price_text(0.9514) == "$0.9514"
     assert price_text(0.0583) == "$0.05830"
     assert price_text(0.00000361) == "$0.00000361"

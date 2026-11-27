@@ -4,6 +4,7 @@ Coins are shown as a letter in the coin's color, not their logos (those are othe
 """
 
 import io
+import math
 from dataclasses import dataclass
 
 from PIL import Image, ImageDraw
@@ -13,7 +14,10 @@ from .profile_card import BACKGROUND_BOTTOM, BACKGROUND_TOP, MUTED, PANEL, SCALE
 W = 1000
 GREEN, RED, GOLD = (46, 204, 113), (231, 76, 60), (255, 206, 84)
 GRID = (48, 46, 64)
-EARLIER_LINE = (200, 196, 220)
+UP_CANDLE, DOWN_CANDLE = (38, 166, 154), (239, 83, 80)
+ENTRY_TAG, ENTRY_TAG_TEXT = (225, 225, 235), (25, 25, 35)
+# Seconds per candle by bet length: about 35 candles for a 1-minute bet, 50 for the longer ones.
+CANDLE_SECONDS = {1: 10, 5: 30, 10: 60}
 COINS = {
     "BTC": ("Bitcoin", (247, 147, 26)), "ETH": ("Ethereum", (120, 140, 240)), "SOL": ("Solana", (160, 90, 255)),
     "BNB": ("BNB", (243, 186, 47)), "XRP": ("XRP", (170, 180, 200)), "DOGE": ("Dogecoin", (200, 170, 60)),
@@ -42,12 +46,10 @@ class BetCard:
 
 
 def price_text(price: float) -> str:
-    if price >= 100:
-        return f"${price:,.2f}"
-    if price >= 1:
-        return f"${price:,.4f}"
-    if price >= 0.01:
-        return f"${price:.5f}"
+    """As many decimals as the exchange quotes: $72.06 for SOL, $9.385 for LINK, $0.9514 for XRP."""
+    for at_least, decimals in ((10, 2), (1, 3), (0.1, 4), (0.01, 5)):
+        if price >= at_least:
+            return f"${price:,.{decimals}f}"
     return f"${price:.8f}"
 
 
@@ -130,57 +132,113 @@ def _dashed(draw, start, end, color, dash=10, gap=8, width=2):
 
 # ---------- the bet card ----------
 
+def _nice_step(raw: float) -> float:
+    """A round step for the price scale: 1, 2, 2.5 or 5 times a power of ten."""
+    power = 10 ** math.floor(math.log10(raw))
+    return next(m * power for m in (1, 2, 2.5, 5, 10) if raw <= m * power)
+
+
+def _scale_text(value: float, step: float) -> str:
+    power = math.floor(math.log10(step))
+    decimals = max(0, -power + (1 if round(step / 10 ** power, 1) == 2.5 else 0))
+    return f"{value:,.{decimals}f}"
+
+
+def _tag(img, x, y, text, fill, color=(255, 255, 255)):
+    """A price in a colored box on the price scale."""
+    width, height = _width(text, 13, "SemiBold") + 14, 22
+    _panel(img, (x, y - height / 2, x + width, y + height / 2), fill=fill, radius=5)
+    _text(ImageDraw.Draw(img), (x + 7, y), text, 13, color, "SemiBold", "lm")
+
+
+def _candles(points, start, size):
+    """(middle time, open, high, low, close) per `size` seconds; a candle opens at the previous one's close."""
+    buckets: dict[int, list[float]] = {}
+    for t, price in points:
+        buckets.setdefault(int((t - start) // size), []).append(price)
+    candles, previous = [], points[0][1] if points else None
+    for n in sorted(buckets):
+        prices = buckets[n]
+        candles.append((start + (n + 0.5) * size, previous, max([previous] + prices), min([previous] + prices),
+                        prices[-1]))
+        previous = prices[-1]
+    return candles
+
+
 def _bet_chart(img, box, card: BetCard):
-    left, top, right, bottom = box
+    """Candles like an exchange chart, with a price scale on the right and the minutes around the bet below."""
+    left, top, right, bottom = box[0], box[1], box[2] - 92, box[3] - 22
     start = card.entry_at - history_minutes(card.minutes) * 60
     end = card.ends_at
     points = [p for p in card.points if start <= p[0] <= max(end, card.now)]
-    prices = [p for _, p in points] + [card.entry]
+    last = card.close if card.close is not None else (points[-1][1] if points else card.entry)
+    prices = [p for _, p in points] + [card.entry, last]
     lo, hi = min(prices), max(prices)
     span = (hi - lo) or card.entry * 0.001 or 1
-    lo, hi = lo - span * 0.15, hi + span * 0.15
+    lo, hi = lo - span * 0.12, hi + span * 0.12
 
-    def at(t, price):
-        x = left + (right - left) * min(1.0, max(0.0, (t - start) / (end - start)))
-        return x, bottom - (bottom - top) * (price - lo) / (hi - lo)
+    def x_at(t):
+        return left + (right - left) * min(1.0, max(0.0, (t - start) / (end - start)))
 
+    def y_at(price):
+        return bottom - (bottom - top) * (price - lo) / (hi - lo)
+
+    if card.status == "open":  # is the bet winning right now?
+        color = MUTED if last == card.entry else GREEN if (last > card.entry) == card.up else RED
+    else:
+        color = RESULT_COLORS[card.status]
+
+    # the bet's own minutes, shaded (in the result's color once it's over)
+    layer = Image.new("RGBA", img.size)
+    shade = (255, 255, 255, 10) if card.status == "open" else color + (26,)
+    ImageDraw.Draw(layer).rectangle((x_at(card.entry_at) * S, top * S, x_at(end) * S, bottom * S), fill=shade)
+    img.alpha_composite(layer)
     draw = ImageDraw.Draw(img)
-    for k in range(1, 4):
-        y = top + (bottom - top) * k / 4
+
+    # time scale: minutes before the bet, its start and its end (not clock times: players are in different zones)
+    tick = card.minutes * 60
+    n = -int((card.entry_at - start) // tick)
+    while card.entry_at + n * tick <= end + 1:
+        t = card.entry_at + n * tick
+        x = x_at(t)
+        if n:
+            draw.line([(x * S, top * S), (x * S, bottom * S)], fill=GRID, width=S)
+        label = "bet" if n == 0 else "end" if abs(t - end) < 1 else f"−{-n * card.minutes}m"
+        _text(draw, (x, bottom + 14), label, 12, TEXT if label in ("bet", "end") else MUTED, "SemiBold", "mm")
+        n += 1
+
+    # price scale; the entry and current price tags go on it, so labels near them are left out
+    entry_y, last_y = y_at(card.entry), y_at(last)
+    tag_y = last_y if abs(last_y - entry_y) >= 22 else entry_y + (22 if last_y >= entry_y else -22)
+    step = _nice_step((hi - lo) / 4)
+    value = math.ceil(lo / step) * step
+    while value <= hi:
+        y = y_at(value)
         draw.line([(left * S, y * S), (right * S, y * S)], fill=GRID, width=S)
+        if abs(y - entry_y) > 20 and abs(y - tag_y) > 20:
+            _text(draw, (right + 10, y), _scale_text(value, step), 13, MUTED, "Medium", "lm")
+        value += step
 
-    before = [at(t, p) for t, p in points if t < card.entry_at] + [at(card.entry_at, card.entry)]
-    after = [at(card.entry_at, card.entry)] + [at(t, p) for t, p in points if t > card.entry_at]
-    color = RESULT_COLORS.get(card.status, GOLD)
+    size = CANDLE_SECONDS.get(card.minutes, 10)
+    body = max(2.0, (right - left) * size / (end - start) * 0.68)
+    for t, o, h, l, c in _candles(points, start, size):
+        x = x_at(t)
+        fill = UP_CANDLE if c >= o else DOWN_CANDLE
+        draw.line([(x * S, y_at(h) * S), (x * S, y_at(l) * S)], fill=fill, width=max(1, int(1.5 * S)))
+        y0, y1 = sorted((y_at(o), y_at(c)))
+        draw.rectangle(((x - body / 2) * S, y0 * S, (x + body / 2) * S, max(y1, y0 + 1.5) * S), fill=fill)
 
-    if card.status != "open" and len(after) > 1:
-        layer = Image.new("RGBA", img.size)
-        area = after + [(after[-1][0], bottom), (after[0][0], bottom)]
-        ImageDraw.Draw(layer).polygon([(x * S, y * S) for x, y in area], fill=color + (45,))
-        img.alpha_composite(layer)
-        draw = ImageDraw.Draw(img)
-
-    if len(before) > 1:
-        draw.line([(x * S, y * S) for x, y in before], fill=EARLIER_LINE, width=3 * S, joint="curve")
-    if len(after) > 1:
-        draw.line([(x * S, y * S) for x, y in after], fill=color, width=4 * S, joint="curve")
-
-    entry_y = at(card.entry_at, card.entry)[1]
-    _dashed(draw, (left, entry_y), (right, entry_y), (255, 255, 255, 120))
-    ex, ey = at(card.entry_at, card.entry)
-    draw.ellipse(((ex - 7) * S, (ey - 7) * S, (ex + 7) * S, (ey + 7) * S), fill=TEXT)
-
-    nx, ny = after[-1]
+    _dashed(draw, (left, entry_y), (right, entry_y), (255, 255, 255, 130), dash=6, gap=5)
+    ex = x_at(card.entry_at)
+    draw.ellipse(((ex - 6) * S, (entry_y - 6) * S, (ex + 6) * S, (entry_y + 6) * S), fill=TEXT)
+    lx = x_at(end if card.status != "open" else points[-1][0] if points else card.entry_at)
+    _dashed(draw, (lx, last_y), (right, last_y), color + (200,), dash=3, gap=3, width=1)
     if card.status == "open":
-        _dashed(draw, (right, top), (right, bottom), (255, 255, 255, 140), dash=8, gap=6)
-        _text(draw, (right, top - 14), "FINISH", 13, MUTED, anchor="rm")
-        glow = Image.new("RGBA", img.size)
-        ImageDraw.Draw(glow).ellipse(((nx - 12) * S, (ny - 12) * S, (nx + 12) * S, (ny + 12) * S), fill=GOLD + (70,))
-        img.alpha_composite(glow)
-        draw = ImageDraw.Draw(img)
-        draw.ellipse(((nx - 6) * S, (ny - 6) * S, (nx + 6) * S, (ny + 6) * S), fill=GOLD)
-    elif len(after) > 1:
-        draw.ellipse(((nx - 7) * S, (ny - 7) * S, (nx + 7) * S, (ny + 7) * S), fill=color)
+        _dashed(draw, (x_at(end), top), (x_at(end), bottom), (255, 255, 255, 140), dash=6, gap=5)
+    else:
+        draw.ellipse(((lx - 5) * S, (last_y - 5) * S, (lx + 5) * S, (last_y + 5) * S), fill=color)
+    _tag(img, right + 4, entry_y, price_text(card.entry)[1:], ENTRY_TAG, ENTRY_TAG_TEXT)
+    _tag(img, right + 4, tag_y, price_text(last)[1:], color)
 
 
 def render_bet_card(card: BetCard) -> bytes:

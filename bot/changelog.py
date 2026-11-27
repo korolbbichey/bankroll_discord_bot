@@ -25,6 +25,9 @@ class Entry:
 
 # Newest first.
 CHANGELOG: list[Entry] = [
+    Entry("2026-11-28-crypto-chart", "2026-11-28", "Exchange-style crypto charts", (
+        "🕯️ `/crypto bet` now shows candles with a price scale, like on an exchange",
+    )),
     Entry("2026-11-27-crypto", "2026-11-27", "Bet on real crypto prices", (
         "📈 `/crypto bet`: will BTC, ETH, SOL, BNB, XRP, DOGE, LINK, AVAX or SUI go up or down in 1, 5 or 10 minutes?",
         "🎯 Guess right and win **1.9x** your bet (up to 10,000). If the price doesn't move, you get your bet back",

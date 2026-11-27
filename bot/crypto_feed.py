@@ -2,7 +2,8 @@
 Live crypto prices for /crypto, from Binance's public market data (no key needed, not blocked by region).
 
 One background task asks for every coin's price every few seconds and keeps the last hour in memory
-(about 800 points per coin) for the charts. At startup the hour is filled from 1-minute candles.
+(about 800 points per coin) for the charts. At startup the hour is filled from Binance's candles: the last
+40 minutes, as far back as a bet's chart goes, in 5-second steps like the live prices, the rest by the minute.
 A bet's entry and closing prices are the first prices seen *after* the moment they're needed, so a player
 watching a faster price somewhere else can't know them in advance.
 """
@@ -23,6 +24,7 @@ API = "https://data-api.binance.vision/api/v3"
 POLL_SECONDS = 5
 FRESH_SECONDS = 20       # older than this, prices count as unavailable and no new bets start
 KEEP_SECONDS = 60 * 60
+DETAIL_SECONDS = 40 * 60  # history loaded in 5-second steps at startup: a 10-minute bet's chart starts 40 min back
 STATUS_EVERY = 60 * 60   # how often to check which pairs are trading
 TIMEOUT = aiohttp.ClientTimeout(total=10)
 
@@ -51,14 +53,34 @@ async def fetch_trading(session: aiohttp.ClientSession) -> set[str]:
     return {coin for coin in CRYPTO_COINS if symbol(coin) in trading}
 
 
-async def fetch_history(session: aiohttp.ClientSession, coin: str) -> list[tuple[float, float]]:
-    """The last hour of one coin as (time, closing price) of 1-minute candles."""
-    async with session.get(f"{API}/klines", params={"symbol": symbol(coin), "interval": "1m", "limit": 60}) as reply:
+async def fetch_candles(session: aiohttp.ClientSession, coin: str, interval: str, **params) -> list[list]:
+    async with session.get(f"{API}/klines", params={"symbol": symbol(coin), "interval": interval, **params}) as reply:
         reply.raise_for_status()
-        rows = await reply.json()
+        return await reply.json()
+
+
+async def fetch_history(session: aiohttp.ClientSession, coin: str) -> list[tuple[float, float]]:
+    """
+    The last hour of one coin as (time, closing price): 1-minute candles, then the last DETAIL_SECONDS from
+    1-second candles, one every POLL_SECONDS, so a chart drawn right after a restart looks like any other.
+    A candle that is still running (it closes in the future) is left out.
+    """
     now = time.time()
-    # The last candle is still running (it closes in the future), so it's left out.
-    return [(row[6] / 1000, float(row[4])) for row in rows if row[6] / 1000 <= now]
+    detail_from = now - DETAIL_SECONDS
+    points = [(row[6] / 1000, float(row[4])) for row in await fetch_candles(session, coin, "1m", limit=60)
+              if row[6] / 1000 < detail_from]
+    start, kept_at = int(detail_from * 1000), 0.0
+    for _ in range(DETAIL_SECONDS // 1000 + 2):  # 1,000 candles per request
+        rows = await fetch_candles(session, coin, "1s", startTime=start, limit=1000)
+        for row in rows:
+            at = row[6] / 1000
+            if at <= now and at >= kept_at + POLL_SECONDS:
+                points.append((at, float(row[4])))
+                kept_at = at
+        if len(rows) < 1000:
+            break
+        start = rows[-1][0] + 1000
+    return points
 
 
 class PriceFeed:
