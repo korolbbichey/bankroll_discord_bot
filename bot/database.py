@@ -136,6 +136,21 @@ def init_db():
             net INTEGER DEFAULT 0,
             PRIMARY KEY (day, user_id, game)
         )''')
+        # /crypto bets. status: open, won, lost, push (price unchanged, bet returned) or refunded (no price)
+        cursor.execute('''CREATE TABLE IF NOT EXISTS crypto_bets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            coin TEXT NOT NULL,
+            up INTEGER NOT NULL,
+            bet INTEGER NOT NULL,
+            minutes INTEGER NOT NULL,
+            placed_at TEXT NOT NULL,
+            entry REAL,
+            close REAL,
+            payout INTEGER,
+            status TEXT NOT NULL DEFAULT 'open'
+        )''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS crypto_bets_open ON crypto_bets (status, user_id)")
         # /vote: the top.gg vote each player was last paid for (its time), so one vote pays once
         cursor.execute('''CREATE TABLE IF NOT EXISTS vote_rewards (
             user_id INTEGER PRIMARY KEY,
@@ -395,6 +410,69 @@ def transfer(from_id, to_id, amount: int) -> bool:
         cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (amount, to_id))
         _add_pay(cursor, from_id, to_id, amount)
         return True
+
+
+def open_crypto_bet(user_id, coin: str, up: bool, bet: int, minutes: int, max_open: int) -> int | str:
+    """
+    Take the bet and record it as open. Returns its id, or "too_many" (the player already has max_open bets
+    running) or "no_coins". One transaction, so two commands at once can't get around either check.
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        running = cursor.execute("SELECT COUNT(*) FROM crypto_bets WHERE status = 'open' AND user_id = ?",
+                                 (user_id,)).fetchone()[0]
+        if running >= max_open:
+            return "too_many"
+        _ensure_account(cursor, user_id)
+        cursor.execute("UPDATE currency SET balance = balance - ? WHERE user_id = ? AND balance >= ?",
+                       (bet, user_id, bet))
+        if cursor.rowcount != 1:
+            return "no_coins"
+        cursor.execute("INSERT INTO crypto_bets (user_id, coin, up, bet, minutes, placed_at) VALUES (?, ?, ?, ?, ?, ?)",
+                       (user_id, coin, int(up), bet, minutes, datetime.now(timezone.utc).isoformat(timespec="seconds")))
+        return cursor.lastrowid
+
+
+def set_crypto_entry(bet_id: int, entry: float):
+    with get_connection() as conn:
+        conn.execute("UPDATE crypto_bets SET entry = ? WHERE id = ?", (entry, bet_id))
+
+
+def settle_crypto_bet(bet_id: int, status: str, payout: int, close: float | None = None) -> int | None:
+    """
+    Close an open bet ('won', 'lost', 'push' or 'refunded') and pay `payout`. Returns the player's new balance,
+    or None if the bet was already closed (nothing is paid twice).
+    """
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE crypto_bets SET status = ?, payout = ?, close = ? WHERE id = ? AND status = 'open'",
+                       (status, payout, close, bet_id))
+        if cursor.rowcount != 1:
+            return None
+        user_id = cursor.execute("SELECT user_id FROM crypto_bets WHERE id = ?", (bet_id,)).fetchone()[0]
+        if payout:
+            cursor.execute("UPDATE currency SET balance = balance + ? WHERE user_id = ?", (payout, user_id))
+        return cursor.execute("SELECT balance FROM currency WHERE user_id = ?", (user_id,)).fetchone()[0]
+
+
+def refund_open_crypto_bets() -> int:
+    """At startup: bets left running by the last shutdown can't be finished, so their coins go back."""
+    with get_connection() as conn:
+        ids = [row[0] for row in conn.execute("SELECT id FROM crypto_bets WHERE status = 'open'")]
+    for bet_id in ids:
+        with get_connection() as conn:
+            bet = conn.execute("SELECT bet FROM crypto_bets WHERE id = ?", (bet_id,)).fetchone()[0]
+        settle_crypto_bet(bet_id, "refunded", bet)
+    return len(ids)
+
+
+def crypto_crowd(coin: str, hours: int = 24) -> tuple[int, int]:
+    """(bets on up, bets on down) on this coin in the last hours, for the "x% bet UP" bar."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    with get_connection() as conn:
+        up, total = conn.execute("SELECT COALESCE(SUM(up), 0), COUNT(*) FROM crypto_bets "
+                                 "WHERE coin = ? AND placed_at >= ? AND status != 'refunded'", (coin, since)).fetchone()
+    return up, total - up
 
 
 def get_pay_stats(user_id) -> dict:

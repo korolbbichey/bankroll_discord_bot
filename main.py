@@ -17,13 +17,14 @@ from dotenv import load_dotenv
 # Import bot modules
 from bot.config import DB_FILE, ADMIN_GUILD_ID, BOT_STATUS, ANNOUNCEMENT_ID
 from bot.database import (
-    init_db, mark_announcement_shown, refund_pending_duels, save_username, take_backpay_notice,
+    init_db, mark_announcement_shown, refund_pending_duels, refund_open_crypto_bets, save_username, take_backpay_notice,
     get_changelog_seen, mark_changelog_seen, take_xp_comeback_notice, take_topup_notice,
 )
 from bot import changelog
 from bot.utils import display_name, avatar_hash, InvalidBet
 from bot.commands import economy, admin, general, work, feedback, vote
-from bot.games import slots, blackjack, coinflip, duel, roulette
+from bot.games import slots, blackjack, coinflip, duel, roulette, crypto
+from bot import crypto_feed
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -43,6 +44,9 @@ logger.info("Database initialized at %s", os.path.abspath(DB_FILE))
 # Duels left waiting by the last shutdown can't be answered any more: their buttons died with the old process.
 if refunded := refund_pending_duels():
     logger.info("Refunded %d unanswered duel(s) from before the restart.", refunded)
+# Crypto bets running at the shutdown lost their timers, so their coins go back.
+if refunded := refund_open_crypto_bets():
+    logger.info("Refunded %d crypto bet(s) from before the restart.", refunded)
 
 
 class BankRollBot(commands.Bot):
@@ -76,10 +80,12 @@ class BankRollBot(commands.Bot):
         coinflip.setup(self)
         roulette.setup(self)
         duel.setup(self)
+        crypto.setup(self)
 
         self.tree.on_error = self.on_app_command_error
         # Kept in an attribute: asyncio only holds a weak reference to running tasks.
         self.topgg_task = asyncio.create_task(vote.keep_server_count_posted(self))
+        crypto_feed.feed.start()
 
         synced = await self.tree.sync()
         logger.info("Synced %d command(s) globally.", len(synced))

@@ -30,7 +30,8 @@ from ..progression import (
 )
 
 LEADERBOARD_SIZE = 10
-GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack", "roulette": "Roulette", "duel": "Duels"}
+GAME_NAMES = {"slots": "Slots", "coinflip": "Coinflip", "blackjack": "Blackjack", "roulette": "Roulette", "duel": "Duels",
+              "crypto": "Crypto"}
 WARM_STREAK = 3
 WEEK_STREAK = 7
 MONTH_STREAK = 30
@@ -353,10 +354,13 @@ def setup(client):
         bj_wins, bj_losses, _, bj_largest_win = profile_data["blackjack"] or (0, 0, 0, 0)
         level, xp_into_level, level_span = level_progress(get_player_progress(target.id)[0])
         title = title_for_level(level)
-        duel_games, duel_wins, _ = get_game_stats(target.id).get("duel", (0, 0, 0))
-        games += duel_games
-        wins += duel_wins
-        losses += duel_games - duel_wins
+        # Duels and crypto bets are only in the per-game stats, not in the old stats tables
+        game_stats = get_game_stats(target.id)
+        for game in ("duel", "crypto"):
+            played, won, _ = game_stats.get(game, (0, 0, 0))
+            games += played
+            wins += won
+            losses += played - won
         return CardData(
             name=display_name(target),
             title=title.name,

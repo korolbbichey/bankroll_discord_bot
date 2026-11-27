@@ -18,7 +18,7 @@ OWNER_IDS = {int(x) for x in os.getenv("OWNER_IDS", "").replace(" ", "").split("
 ADMIN_GUILD_ID = int(os.getenv("ADMIN_GUILD_ID") or 0) or None
 
 # Custom status shown under the bot's name. Set BOT_STATUS to change it, or to an empty value to hide it.
-BOT_STATUS = os.getenv("BOT_STATUS", "📈 Coming soon: bet on BTC, ETH & more!")
+BOT_STATUS = os.getenv("BOT_STATUS", "📈 New: bet on BTC, ETH & more with /crypto")
 
 # One-time update notice, posted publicly once per server after the first command used there.
 # The embed itself is built in bot/commands/general.py (build_announcement_embed).
@@ -86,6 +86,15 @@ WORK_ANSWER_SECONDS = 20
 # promotion is clearly felt over the random base pay: a Tycoon earns 54-94 per shift against a Trainee's 20-35.
 WORK_RANKS = [(0, "Trainee", 1.0), (10, "Dealer", 1.2), (30, "Pit Boss", 1.4), (75, "Casino Manager", 1.7),
               (120, "Casino Director", 2.0), (200, "Casino Owner", 2.3), (300, "Tycoon", 2.7)]
+
+# /crypto: bets on whether a coin's real price goes up or down. Prices come from Binance's public market data.
+# Only coins whose price moves by more than the exchange's smallest step within a minute: on cheap coins like
+# SHIB, PEPE or ADA most short bets ended with an unchanged price (a push), 37-66% of 1-minute bets.
+CRYPTO_COINS = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "LINK", "AVAX", "SUI"]
+CRYPTO_DURATIONS = [1, 5, 10]  # minutes; a reply can only be edited for 15 minutes after the command
+CRYPTO_MAX_BET = 10_000
+CRYPTO_PAYOUT = 1.9            # times the bet for a right guess: a 5% house edge on a 50/50 market
+CRYPTO_MAX_OPEN = 3            # bets one player can have running at once
 
 # /vote: coins for a vote on top.gg (once every 12 hours). Top.gg counts weekend votes double, and so do we.
 VOTE_REWARD = 500

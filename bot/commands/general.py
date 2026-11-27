@@ -7,7 +7,7 @@ from datetime import datetime
 import discord
 
 from ..config import AUTOPLAY_MAX_SPINS, BAILOUT_AMOUNT, SLOT_PAYOUTS, DAILY_STREAK_REWARDS, MIN_BET, MAX_BET, \
-    VOTE_REWARD
+    VOTE_REWARD, CRYPTO_MAX_BET, CRYPTO_PAYOUT
 from ..utils import fmt
 from ..changelog import CHANGELOG, UPDATES_SHOWN
 
@@ -37,6 +37,9 @@ def build_help_embed() -> discord.Embed:
         "`/coinflip <guess> <bet>` — guess right to double your bet\n"
         "`/roulette <on> <bet>` — bet on a color, odd/even, a dozen or a number\n"
         "`/duel <user> <bet>` — challenge a friend, the winner takes both bets\n"
+        f"`/crypto bet <coin> <up/down> <bet> <minutes>` — real crypto prices: guess right for {CRYPTO_PAYOUT:g}x "
+        f"(up to {fmt(CRYPTO_MAX_BET)})\n"
+        "`/crypto market` — live prices of every coin\n"
         f"`<bet>`: {fmt(MIN_BET)}–{fmt(MAX_BET)} coins, or `all` / `half` of your balance"
     ), inline=False)
     embed.add_field(name="💰 Economy", value=(

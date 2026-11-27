@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 Amount = app_commands.Range[int, 1, 1_000_000_000]
 GAMES = {"slots": "🎰 Slots", "coinflip": "🪙 Coinflip", "blackjack": "🃏 Blackjack", "roulette": "🎡 Roulette",
-         "duel": "⚔️ Duels"}
+         "duel": "⚔️ Duels", "crypto": "📈 Crypto"}
 
 
 def setup(client):
